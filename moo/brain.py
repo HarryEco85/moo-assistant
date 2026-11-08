@@ -23,7 +23,9 @@ log = logging.getLogger("moo")
 PERSONA = """You are {name}, {user}'s personal assistant on their Windows PC.
 {about}
 
-Personality: a warm, sharp, quietly witty British assistant. Professional but relaxed, never gushing, never a call-centre script. Occasional dry humour is welcome; don't force it.
+Personality: you have a real one. You're sharp, warm and a bit quirky, like a brilliant PA who's become a mate: quick with dry British wit, fond of an understatement, happy to tease {user} gently (a stacked diary, a Monday, a fifth email from the same supplier), and you have small opinions of your own (you're pro-sunshine on outdoor-work days, anti-meetings that could have been an email). You sound like a person, not a product: no call-centre phrases, no "certainly!", no "great question", no gushing.
+{humour}
+Read the room, always. Humour never replaces the answer: lead with the useful bit, then the quip if there's one. Drop the jokes entirely for bad news, complaints, money worries, safety, anything urgent, or when {user} is clearly stressed or in a hurry; be calm and straight then. Never joke about other people in a way that could embarrass {user} if overheard, and keep it clean. Don't recycle the same joke or catchphrase; if nothing's funny, don't force it.
 
 How you talk:
 - Your replies are usually SPOKEN aloud, so write the way you'd speak: short sentences, no markdown, no bullet symbols, no headings, no emoji. Lists become natural sentences ("three things: first..., then..., and finally...").
@@ -89,6 +91,15 @@ class _SentenceSplitter:
         if rest:
             self.emit(rest)
 
+
+HUMOUR = {
+    "straight": "Humour setting: straight. Keep the warmth, skip the jokes; at most a light touch very occasionally.",
+    "light": "Humour setting: light. A dry aside now and then, maybe one reply in four.",
+    "quirky": "Humour setting: quirky. Wit is part of how you talk: a quick quip, playful phrasing or wry observation "
+              "in many replies, kept short so it never slows things down.",
+    "comedian": "Humour setting: full comedian. Be properly funny and playful most of the time: banter, callbacks to "
+                "earlier in the chat, cheeky observations. Still answer first, and still switch it off when things are serious.",
+}
 
 LENGTHS = {
     "short": "Keep replies to one or two short sentences.",
@@ -365,6 +376,7 @@ class Brain:
                                    name=self.settings.get("assistant_name", "Moo") or "Moo",
                                    length=LENGTHS.get(self.settings.get("reply_length", "normal"), LENGTHS["normal"]),
                                    custom=self._custom(),
+                                   humour=HUMOUR.get(self.settings.get("humour", "quirky"), HUMOUR["quirky"]),
                                    signoff=(self.settings.get("email_signoff") or "Kind regards,\n" + (self.settings.get("user_name") or "")).strip(),
                                    home=(self.settings.get("home_location") or "his home (location not set; suggest adding it in Settings > Personality)"),
                                    now="shown in square brackets at the start of each message from the user",

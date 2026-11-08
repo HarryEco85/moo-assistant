@@ -26,6 +26,7 @@ DEFAULTS = {
     "assistant_name": "Moo",
     # Personality
     "reply_length": "normal",  # short / normal / detailed
+    "humour": "quirky",  # straight / light / quirky / comedian
     "personality_notes": "",  # free text, e.g. "dry humour, call me boss"
     "about_you": "",  # your job and business, so she understands your world
     "vocabulary": "",  # words she should recognise when you speak (names, trade terms)

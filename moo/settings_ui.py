@@ -8,6 +8,8 @@ from .config import get_api_key, get_azure_key, get_secret, save_settings, set_a
 from .themes import BG, FAINT, FONT, MUTED, SURFACE, SURFACE_HI, TEXT, THEMES, accent
 
 TEXT_SIZES = ["Small", "Medium", "Large"]
+HUMOUR_CHOICES = [("straight", "Straight: warm, no jokes"), ("light", "Light: the odd dry remark"),
+                  ("quirky", "Quirky: witty and playful"), ("comedian", "Full comedian")]
 LENGTH_CHOICES = [("short", "Short and snappy"), ("normal", "Normal"), ("detailed", "Detailed")]
 WHISPER_CHOICES = [("base.en", "Fast (less accurate)"), ("small.en", "Balanced"),
                    ("medium.en", "Most accurate (best with a graphics card)")]
@@ -251,6 +253,8 @@ class SettingsWindow:
         about.insert("1.0", s.get("about_you", ""))
         about.pack(fill="x")
         self.vars["about_you"] = about
+        self._combo(t, "humour", "Humour", HUMOUR_CHOICES, s.get("humour", "quirky"),
+                    note="She always turns the jokes off for bad news, complaints or anything urgent.")
         self._combo(t, "reply_length", "Reply length", LENGTH_CHOICES, s.get("reply_length", "normal"))
         self._label(t, "Personality and style",
                     "Plain English, e.g. 'More dry humour. Call me boss. Football references now and then. "
