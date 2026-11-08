@@ -101,6 +101,8 @@ class MooWindow:
         self.orb = Orb(240)
         self._orb_img = None
         self._has_placeholder = False
+        self._card_images = []
+        self.chat_width = 420
         self._build()
         self.apply_appearance()
         self.root.after(33, self._animate)
@@ -165,6 +167,20 @@ class MooWindow:
         self.chat.configure(state="disabled")
         self.chat.see("end")
 
+    def add_card(self, pil_image):
+        self.later(self._add_card, pil_image)
+
+    def _add_card(self, pil_image):
+        photo = ImageTk.PhotoImage(pil_image)
+        self._card_images.append(photo)  # keep a reference or Tk drops the picture
+        self._card_images = self._card_images[-30:]
+        self.chat.configure(state="normal")
+        self.chat.insert("end", " ", "card")
+        self.chat.image_create("end", image=photo, padx=0, pady=4)
+        self.chat.insert("end", "\n\n", "gap")
+        self.chat.configure(state="disabled")
+        self.chat.see("end")
+
     def add_draft(self, text, label):
         self.later(self._add_draft, text, label)
 
@@ -220,6 +236,7 @@ class MooWindow:
                             font=(FONT, 11), state="disabled", cursor="arrow", highlightthickness=0,
                             spacing1=1, spacing3=1, insertbackground=BG, selectbackground=SURFACE_HI)
         self.chat.pack(side="top", fill="both", expand=True)
+        self.chat.bind("<Configure>", lambda e: setattr(self, "chat_width", e.width))
         self.chat.tag_configure("moo", foreground=TEXT, font=(FONT, 12), rmargin=40, spacing2=3)
         self.chat.tag_configure("you", foreground=MUTED, font=(FONT, 11), justify="right", lmargin1=70, lmargin2=70)
         self.chat.tag_configure("sys", foreground=FAINT, font=(FONT, 9), justify="center", lmargin1=30, lmargin2=30,

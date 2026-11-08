@@ -206,6 +206,13 @@ class Phone:
         self._call("sendChatAction", chat_id=chat_id, action="typing")
         reply, drafts = self.app.ask_from_phone(text, heard=voice_in)
         for label, body in drafts:
+            if label == "__image__":
+                try:
+                    self._call("sendPhoto", http_timeout=60, chat_id=chat_id,
+                               files={"photo": ("card.png", body, "image/png")})
+                except Exception as e:
+                    log.warning("Couldn't send card to phone: %s", e)
+                continue
             self.send_text(f"{label}:\n\n{body}", chat_id)
         self.send_text(reply, chat_id)
         if voice_in and self.s.get("phone_voice_replies", True):

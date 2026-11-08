@@ -29,6 +29,27 @@ class OutlookNotConfigured(Exception):
     pass
 
 
+def day_range(start_date: str, days=1):
+    try:
+        start = datetime.fromisoformat(start_date)
+    except (ValueError, TypeError):
+        start = datetime.now()
+    start = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    days = max(1, min(int(days or 1), 14))
+    return start, start + timedelta(days=days), days
+
+
+def events_text(events, label, start, days) -> str:
+    if not events:
+        return f"Nothing in the {label} from {start:%a %d %b} for {days} day(s)."
+    lines = []
+    for e in sorted(events, key=lambda e: e["start"]):
+        when = f"{e['start']:%Y-%m-%d} all day" if e["all_day"] else f"{e['start']:%Y-%m-%d %H:%M}-{e['end']:%H:%M}"
+        lines.append(f"- {when} | {e['title']}" + (f" | at {e['location']}" if e.get("location") else "") +
+                     (f" | organiser {e['organiser']}" if e.get("organiser") else "") + f" | {e['source']}")
+    return "\n".join(lines)
+
+
 class Outlook:
     def __init__(self, settings):
         self.client_id = settings.get("ms_client_id", "").strip()
@@ -154,29 +175,27 @@ class Outlook:
                 f"Attachments: {'yes' if m.get('hasAttachments') else 'no'}\n\n{body}")
 
     # ---------- calendar ----------
-    def calendar(self, start_date: str, days=1) -> str:
-        try:
-            start = datetime.fromisoformat(start_date)
-        except ValueError:
-            start = datetime.now()
-        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=max(1, min(int(days), 14)))
+    def calendar_events(self, start, end) -> list:
         data = self._get("/me/calendarView", {
             "startDateTime": start.isoformat(), "endDateTime": end.isoformat(),
-            "$orderby": "start/dateTime", "$top": "50",
-            "$select": "subject,start,end,location,organizer,isAllDay,isCancelled,showAs",
+            "$orderby": "start/dateTime", "$top": "100",
+            "$select": "subject,start,end,location,organizer,isAllDay,isCancelled",
         })
-        events = [e for e in data.get("value", []) if not e.get("isCancelled")]
-        if not events:
-            return f"Nothing in the calendar from {start:%a %d %b} for {days} day(s)."
-        lines = []
-        for e in events:
-            s, en = e["start"]["dateTime"][:16].replace("T", " "), e["end"]["dateTime"][11:16]
-            when = f"{s[:10]} all day" if e.get("isAllDay") else f"{s}-{en}"
-            loc = (e.get("location") or {}).get("displayName", "")
-            org = (e.get("organizer") or {}).get("emailAddress", {}).get("name", "")
-            lines.append(f"- {when} | {e.get('subject', '')}" + (f" | at {loc}" if loc else "") + (f" | organiser {org}" if org else ""))
-        return "\n".join(lines)
+        out = []
+        for e in data.get("value", []):
+            if e.get("isCancelled"):
+                continue
+            out.append({"start": datetime.fromisoformat(e["start"]["dateTime"][:19]),
+                        "end": datetime.fromisoformat(e["end"]["dateTime"][:19]),
+                        "title": e.get("subject", ""), "all_day": bool(e.get("isAllDay")),
+                        "location": (e.get("location") or {}).get("displayName", ""),
+                        "organiser": (e.get("organizer") or {}).get("emailAddress", {}).get("name", ""),
+                        "source": "Outlook"})
+        return out
+
+    def calendar(self, start_date: str, days=1) -> str:
+        start, end, days = day_range(start_date, days)
+        return events_text(self.calendar_events(start, end), "Outlook calendar", start, days)
 
     # ---------- drafts ----------
     def _send(self, method, path, body=None):

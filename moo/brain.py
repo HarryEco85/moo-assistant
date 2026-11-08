@@ -13,7 +13,8 @@ from datetime import datetime
 from . import extras, files
 from .config import get_api_key, user_name
 from .memory import History, Memory, Usage
-from .gmail import Gmail, GmailNotConfigured, google_calendar
+from .gmail import Gmail, GmailNotConfigured, google_calendar_events
+from .outlook import day_range, events_text
 from .outlook import Outlook, OutlookNotConfigured
 from .outlook_desktop import OutlookDesktop
 
@@ -159,7 +160,8 @@ def _tools():
 
 
 class Brain:
-    def __init__(self, settings, reminders, status=None, show_draft=None, connections=None, phone=None):
+    def __init__(self, settings, reminders, status=None, show_draft=None, connections=None, phone=None,
+                 show_card=None):
         self.settings = settings
         self.reminders = reminders
         self.status = status or (lambda s: None)  # callback for "Checking Outlook..." etc.
@@ -167,12 +169,34 @@ class Brain:
         self._search_ok = True
         self.connections = connections or (lambda: "Unknown.")  # live status of every link, from the app
         self.phone = phone  # the Telegram link, for send_to_phone
+        self.show_card = show_card or (lambda kind, data: None)  # visual cards in the window
         self.memory = Memory()
         self.history = History()
         self.usage = Usage()
         self.outlook = self._make_outlook()
         self.gmail = Gmail(settings)
         self._client = None
+
+    def _calendar(self, start_date, days):
+        start, end, days = day_range(start_date, days)
+        events, notes, got_any = [], [], False
+        for label, fn in (("Outlook calendar", lambda: self.outlook.calendar_events(start, end)),
+                          ("Google Calendar", lambda: google_calendar_events(
+                              start, end, self.settings.get("timezone", "Europe/London")))):
+            try:
+                events += fn()
+                got_any = True
+            except (OutlookNotConfigured, GmailNotConfigured):
+                notes.append(f"(Not connected: {label}.)")
+            except Exception as e:
+                log.exception("%s failed", label)
+                notes.append(f"({label} error: {e})")
+        if not got_any:
+            return "No calendar is connected yet (Outlook app or Google Calendar link in Settings). " + " ".join(notes)
+        self.show_card("calendar", {"events": events, "start": start, "days": days})
+        return (events_text(events, "calendar", start, days) + "\n" + " ".join(notes) +
+                "\n(A visual diary card is shown on screen, so keep the spoken summary short: the shape of the day "
+                "and anything that needs attention, not every entry.)")
 
     def _both(self, account, outlook_fn, gmail_fn, labels=("Outlook (work)", "Gmail")):
         """Run against Outlook, Gmail or both, skipping whichever isn't set up."""
@@ -256,10 +280,7 @@ class Brain:
                 mid = args["message_id"]
                 return self.gmail.read_email(mid) if mid.startswith("gm:") else self.outlook.read_email(mid)
             if name == "get_calendar":
-                return self._both("both", lambda: self.outlook.calendar(args.get("start_date", ""), args.get("days", 1)),
-                                  lambda: google_calendar(args.get("start_date", ""), args.get("days", 1),
-                                                          self.settings.get("timezone", "Europe/London")),
-                                  labels=("Outlook calendar", "Google Calendar"))
+                return self._calendar(args.get("start_date", ""), args.get("days", 1))
             if name == "search_files":
                 return files.search_files(args["query"], self.settings.get("search_folders") or None)
             if name == "read_file":
@@ -295,7 +316,9 @@ class Brain:
                 return out
             if name == "get_weather":
                 self.status("Checking the weather")
-                return extras.weather(args.get("location") or self.settings.get("home_location", ""), args.get("days", 1))
+                w = extras.weather_data(args.get("location") or self.settings.get("home_location", ""), args.get("days", 1))
+                self.show_card("weather", w)
+                return extras.weather_text(w) + "\n(A weather card is shown on screen.)"
             if name == "travel_time":
                 self.status("Working out the drive")
                 return extras.travel_time(args["origin"], args["destination"])

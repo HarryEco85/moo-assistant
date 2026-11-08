@@ -188,14 +188,8 @@ class OutlookDesktop:
                     f"Attachments: {', '.join(atts) if atts else 'none'}\n\n{body}")
 
     # ---------- calendar ----------
-    def calendar(self, start_date: str, days=1) -> str:
-        try:
-            start = datetime.fromisoformat(start_date)
-        except ValueError:
-            start = datetime.now()
-        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=max(1, min(int(days), 14)))
-        rows = []
+    def calendar_events(self, start: datetime, end: datetime) -> list:
+        events = []
         with _Session() as s:
             items = s.ns.GetDefaultFolder(CALENDAR).Items
             items.IncludeRecurrences = True
@@ -212,18 +206,16 @@ class OutlookDesktop:
                 if st and st >= end and seen > 1:
                     break
                 if st and en and en > start and st < end:
-                    if item.AllDayEvent:
-                        when = f"{st:%Y-%m-%d} all day"
-                    else:
-                        when = f"{st:%Y-%m-%d %H:%M}-{en:%H:%M}"
-                    loc = getattr(item, "Location", "") or ""
-                    org = getattr(item, "Organizer", "") or ""
-                    rows.append((st, f"- {when} | {item.Subject}" + (f" | at {loc}" if loc else "") +
-                                 (f" | organiser {org}" if org else "")))
+                    events.append({"start": st, "end": en, "title": item.Subject or "", "all_day": bool(item.AllDayEvent),
+                                   "location": getattr(item, "Location", "") or "",
+                                   "organiser": getattr(item, "Organizer", "") or "", "source": "Outlook"})
                 item = items.GetNext()
-        if not rows:
-            return f"Nothing in the Outlook calendar from {start:%a %d %b} for {days} day(s)."
-        return "\n".join(r for _, r in sorted(rows, key=lambda x: x[0]))
+        return sorted(events, key=lambda e: e["start"])
+
+    def calendar(self, start_date: str, days=1) -> str:
+        from .outlook import events_text, day_range
+        start, end, days = day_range(start_date, days)
+        return events_text(self.calendar_events(start, end), "Outlook calendar", start, days)
 
     @staticmethod
     def _day_first() -> bool:

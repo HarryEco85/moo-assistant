@@ -98,7 +98,8 @@ class MooApp:
         from .brain import Brain
         self.brain = Brain(self.settings, self.reminders, status=lambda s: self.ui.set_state("thinking", s),
                            show_draft=lambda text, label: self.ui.add_draft(text, label),
-                           connections=self.connections_report, phone=self.phone)
+                           connections=self.connections_report, phone=self.phone,
+                           show_card=self.show_card)
 
     def _load_voice(self):
         from .voice import Ears, Mouth
@@ -378,6 +379,27 @@ class MooApp:
         if reply and self.settings.get("phone_briefing", True):
             self.phone.notify("Morning briefing\n\n" + reply)
 
+    def show_card(self, kind, data):
+        """Draw a visual card (diary or weather) in the window, and keep it for the phone if needed."""
+        from . import cards
+        from .themes import palette
+        try:
+            width = max(340, min(self.ui.chat_width - 56, 560))
+            if kind == "calendar":
+                img = cards.calendar_card(data["events"], data["start"], data["days"], palette(self.settings), width)
+            elif kind == "weather":
+                img = cards.weather_card(data, palette(self.settings), width)
+            else:
+                return
+        except Exception:
+            log.exception("Card failed")
+            return
+        self.ui.add_card(img)
+        if getattr(self, "_phone_cards", None) is not None:
+            self._phone_cards.append(cards.to_png(cards.calendar_card(
+                data["events"], data["start"], data["days"], palette(self.settings), 480))
+                if kind == "calendar" else cards.to_png(cards.weather_card(data, palette(self.settings), 480)))
+
     def connections_report(self) -> str:
         from .config import get_secret
         s, lines = self.settings, []
@@ -410,6 +432,7 @@ class MooApp:
     def ask_from_phone(self, text, heard=False):
         """A message from Telegram: answer in text (no speaking on the PC)."""
         drafts = []
+        self._phone_cards = []
         if not self.busy.acquire(timeout=90):
             return "I'm tied up with something on the PC. Try again in a moment.", drafts
         old_show = self.brain.show_draft
@@ -426,9 +449,12 @@ class MooApp:
                 log.exception("Phone request failed")
                 reply = f"Sorry, something went wrong: {str(e)[:160]}"
             self.ui.add_message("Moo", reply)
+            for png in self._phone_cards:
+                drafts.append(("__image__", png))
             return reply, drafts
         finally:
             self.brain.show_draft = old_show
+            self._phone_cards = None
             self.ui.set_state("idle")
             self.busy.release()
             self._footer()

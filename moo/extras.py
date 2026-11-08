@@ -68,7 +68,7 @@ def geocode(place: str):
 
 
 # ---------- weather ----------
-def weather(place: str, days: int = 1) -> str:
+def weather_data(place: str, days: int = 1) -> dict:
     lat, lon, name = geocode(place)
     days = max(1, min(int(days or 1), 7))
     r = requests.get("https://api.open-meteo.com/v1/forecast", params={
@@ -80,23 +80,37 @@ def weather(place: str, days: int = 1) -> str:
     }, timeout=15)
     r.raise_for_status()
     d, h = r.json()["daily"], r.json()["hourly"]
-    lines = [f"Weather for {name}:"]
+    out = {"place": name, "days": [], "hours": [], "wet_hours": []}
     for i, day in enumerate(d["time"]):
-        dt = datetime.fromisoformat(day)
-        lines.append(
-            f"- {dt:%a %d %b}: {WEATHER_WORDS.get(d['weather_code'][i], 'mixed')}, "
-            f"{round(d['temperature_2m_min'][i])} to {round(d['temperature_2m_max'][i])}°C, "
-            f"rain chance {d['precipitation_probability_max'][i]}% ({d['precipitation_sum'][i]} mm), "
-            f"wind up to {round(d['wind_speed_10m_max'][i])} mph, gusts {round(d['wind_gusts_10m_max'][i])} mph")
-    # working-day detail for the first day: when is it likely to rain?
+        out["days"].append({
+            "date": datetime.fromisoformat(day), "code": d["weather_code"][i],
+            "words": WEATHER_WORDS.get(d["weather_code"][i], "mixed"),
+            "min": round(d["temperature_2m_min"][i]), "max": round(d["temperature_2m_max"][i]),
+            "rain_pct": d["precipitation_probability_max"][i] or 0, "rain_mm": d["precipitation_sum"][i] or 0,
+            "wind": round(d["wind_speed_10m_max"][i]), "gust": round(d["wind_gusts_10m_max"][i])})
     first = d["time"][0]
-    wet = [t[11:13] for t, p, mm in zip(h["time"], h["precipitation_probability"], h["precipitation"])
-           if t.startswith(first) and 7 <= int(t[11:13]) <= 18 and (p or 0) >= 50 and (mm or 0) > 0.1]
-    if wet:
-        lines.append(f"  Likely wet hours {first}: {', '.join(w + ':00' for w in wet)}")
-    else:
-        lines.append(f"  No rain expected between 07:00 and 18:00 on {first}.")
+    for t, p, mm in zip(h["time"], h["precipitation_probability"], h["precipitation"]):
+        hr = int(t[11:13])
+        if t.startswith(first) and 7 <= hr <= 18:
+            out["hours"].append((hr, p or 0))
+            if (p or 0) >= 50 and (mm or 0) > 0.1:
+                out["wet_hours"].append(f"{hr:02d}:00")
+    return out
+
+
+def weather_text(w: dict) -> str:
+    lines = [f"Weather for {w['place']}:"]
+    for x in w["days"]:
+        lines.append(f"- {x['date']:%a %d %b}: {x['words']}, {x['min']} to {x['max']}°C, rain chance {x['rain_pct']}% "
+                     f"({x['rain_mm']} mm), wind up to {x['wind']} mph, gusts {x['gust']} mph")
+    day = w["days"][0]["date"].strftime("%Y-%m-%d")
+    lines.append(f"  Likely wet hours {day}: {', '.join(w['wet_hours'])}" if w["wet_hours"]
+                 else f"  No rain expected between 07:00 and 18:00 on {day}.")
     return "\n".join(lines)
+
+
+def weather(place: str, days: int = 1) -> str:
+    return weather_text(weather_data(place, days))
 
 
 # ---------- travel ----------

@@ -210,7 +210,7 @@ class Gmail:
 
 
 # ---------- Google Calendar ----------
-def google_calendar(start_date: str, days=1, tz="Europe/London") -> str:
+def google_calendar_events(start: datetime, end: datetime, tz="Europe/London") -> list:
     url = get_secret("gcal_ics_url")
     if not url:
         raise GmailNotConfigured()
@@ -218,28 +218,28 @@ def google_calendar(start_date: str, days=1, tz="Europe/London") -> str:
     import recurring_ical_events
     from zoneinfo import ZoneInfo
     zone = ZoneInfo(tz)
-    try:
-        start = datetime.fromisoformat(start_date)
-    except ValueError:
-        start = datetime.now()
-    start = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=zone)
-    end = start + timedelta(days=max(1, min(int(days), 14)))
     r = requests.get(url.replace("webcal://", "https://"), timeout=20)
     r.raise_for_status()
     cal = icalendar.Calendar.from_ical(r.content)
-    rows = []
-    for ev in recurring_ical_events.of(cal).between(start, end):
+    out = []
+    for ev in recurring_ical_events.of(cal).between(start.replace(tzinfo=zone), end.replace(tzinfo=zone)):
         if str(ev.get("STATUS", "")).upper() == "CANCELLED":
             continue
         s, e = ev.get("DTSTART").dt, ev.get("DTEND").dt if ev.get("DTEND") else None
-        if isinstance(s, datetime):
-            s = (s if s.tzinfo else s.replace(tzinfo=timezone.utc)).astimezone(zone)
-            e = (e if e.tzinfo else e.replace(tzinfo=timezone.utc)).astimezone(zone) if isinstance(e, datetime) else None
-            when, key = f"{s:%Y-%m-%d %H:%M}" + (f"-{e:%H:%M}" if e else ""), s.isoformat()
+        all_day = not isinstance(s, datetime)
+        if all_day:
+            s = datetime(s.year, s.month, s.day)
+            e = datetime(e.year, e.month, e.day) if e else s + timedelta(days=1)
         else:
-            when, key = f"{s:%Y-%m-%d} all day", s.isoformat()
-        loc = str(ev.get("LOCATION", "") or "")
-        rows.append((key, f"- {when} | {ev.get('SUMMARY', '')}" + (f" | at {loc}" if loc else "") + " | Google"))
-    if not rows:
-        return f"Nothing in Google Calendar from {start:%a %d %b} for {days} day(s)."
-    return "\n".join(r for _, r in sorted(rows))
+            s = (s if s.tzinfo else s.replace(tzinfo=timezone.utc)).astimezone(zone).replace(tzinfo=None)
+            e = ((e if e.tzinfo else e.replace(tzinfo=timezone.utc)).astimezone(zone).replace(tzinfo=None)
+                 if isinstance(e, datetime) else s + timedelta(hours=1))
+        out.append({"start": s, "end": e, "title": str(ev.get("SUMMARY", "")), "all_day": all_day,
+                    "location": str(ev.get("LOCATION", "") or ""), "organiser": "", "source": "Google"})
+    return sorted(out, key=lambda x: x["start"])
+
+
+def google_calendar(start_date: str, days=1, tz="Europe/London") -> str:
+    from .outlook import day_range, events_text
+    start, end, days = day_range(start_date, days)
+    return events_text(google_calendar_events(start, end, tz), "Google Calendar", start, days)
