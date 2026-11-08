@@ -55,6 +55,48 @@ class Watcher:
         self._stop = threading.Event()
         self._last_email = 0.0
         self.snoozed_until = 0.0
+        self.stats = {}  # worker -> {"last": ts, "text": str, "alert": str, "error": str, "busy": bool}
+        self._force = set()
+        self._next_meeting_check = 0.0
+
+    def _note(self, worker, text=None, alert=None, error=None, busy=None):
+        st = self.stats.setdefault(worker, {})
+        st["last"] = time.time()
+        if text is not None:
+            st["text"] = text
+        if alert is not None:
+            st["alert"] = alert
+            st["alert_at"] = time.time()
+        if error is not None:
+            st["error"] = error
+        elif text is not None:
+            st["error"] = ""
+        if busy is not None:
+            st["busy"] = busy
+
+    def run_now(self, worker):
+        """Office view 'Run now' button."""
+        def go():
+            self._force.add(worker)
+            if worker == "email":
+                self._last_email = 0
+            if worker == "promises":
+                self._last_promise_scan = 0
+            if worker == "meetings":
+                self._next_meeting_check = 0
+            job = {"email": self._emails, "meetings": self._meetings, "promises": self._scan_promises,
+                   "clashes": self._clash_check, "vh3": self._vh3_check, "waiting": self._waiting}.get(worker)
+            if job:
+                self._note(worker, busy=True)
+                try:
+                    job()
+                except Exception as e:
+                    log.exception("Run now %s failed", worker)
+                    self._note(worker, error=str(e)[:120])
+                finally:
+                    self._note(worker, busy=False)
+                    self._force.discard(worker)
+        threading.Thread(target=go, daemon=True, name=f"run-{worker}").start()
 
     @property
     def s(self):
@@ -93,6 +135,10 @@ class Watcher:
 
     # ---------- delivery ----------
     def alert(self, text, title="Moo", speak=True, urgent=False):
+        worker = {"New email": "email", "Coming up": "meetings", "Promise due": "promises", "Diary clash": "clashes",
+                  "VH3 check": "vh3", "Waiting on you": "waiting", "End of day": "wrap"}.get(title)
+        if worker:
+            self._note(worker, alert=text[:160])
         if self.quiet_now() and not urgent:
             log.info("Quiet: held alert %s", text[:80])
             return
@@ -110,12 +156,15 @@ class Watcher:
         self._prime_emails()
         while not self._stop.is_set():
             if self.s.get("proactive", True) and self.app.brain:
-                for job in (self._meetings, self._emails, self._scan_promises, self._promise_reminders,
-                            self._clash_check, self._vh3_check, self._waiting, self._wrap):
+                for worker, job in (("meetings", self._meetings), ("email", self._emails),
+                                    ("promises", self._scan_promises), ("promises", self._promise_reminders),
+                                    ("clashes", self._clash_check), ("vh3", self._vh3_check),
+                                    ("waiting", self._waiting), ("wrap", self._wrap)):
                     try:
                         job()
-                    except Exception:
+                    except Exception as e:
                         log.exception("Proactive job %s failed", job.__name__)
+                        self._note(worker, error=str(e)[:120])
             self._stop.wait(60)
 
     # ---------- meetings ----------
@@ -124,6 +173,9 @@ class Watcher:
             return
         lead = int(self.s.get("meeting_lead_min", 15) or 15)
         now = datetime.now()
+        if time.time() >= self._next_meeting_check:
+            self._next_meeting_check = time.time() + 300
+            self._note_next_meeting(now)
         start, end = now, now + timedelta(minutes=lead + 1)
         events = []
         brain = self.app.brain
@@ -154,6 +206,20 @@ class Watcher:
                 except Exception:
                     pass
             self.alert(msg, "Coming up")
+
+    def _note_next_meeting(self, now):
+        brain, events = self.app.brain, []
+        from .gmail import GmailNotConfigured, google_calendar_events
+        from .outlook import OutlookNotConfigured
+        end = now.replace(hour=23, minute=59)
+        for fn in (lambda: brain.outlook.calendar_events(now, end), lambda: google_calendar_events(now, end)):
+            try:
+                events += fn()
+            except (OutlookNotConfigured, GmailNotConfigured):
+                pass
+        upcoming = sorted([e for e in events if not e["all_day"] and e["start"] >= now], key=lambda e: e["start"])
+        self._note("meetings", f"Next: {upcoming[0]['title']} at {upcoming[0]['start']:%H:%M}" if upcoming
+                   else "Nothing else in the diary today")
 
     # ---------- email ----------
     def _fetch_new(self, hours=2):
@@ -187,7 +253,9 @@ class Watcher:
         if not self.state["seen_emails"]:  # first time an account is connected: don't flood
             self._prime_emails()
             return
-        new = [(i, t) for i, t in self._fetch_new() if i not in self.state["seen_emails"]]
+        fetched = self._fetch_new()
+        new = [(i, t) for i, t in fetched if i not in self.state["seen_emails"]]
+        self._note("email", f"Checked {len(fetched)} recent emails, {len(new)} new")
         if not new:
             return
         self.state["seen_emails"] += [i for i, _ in new]
@@ -205,15 +273,21 @@ class Watcher:
             picks = json.loads(re.search(r"\[.*\]", reply, re.S).group(0))
         except Exception:
             picks = []
-        for p in picks[:4]:
-            if isinstance(p, dict) and p.get("alert"):
-                self.alert(str(p["alert"])[:300], "New email")
+        flagged = [p for p in picks[:4] if isinstance(p, dict) and p.get("alert")]
+        self._note("email", f"Checked {len(fetched)} recent emails, {len(new)} new, {len(flagged)} flagged")
+        for p in flagged:
+            self.alert(str(p["alert"])[:300], "New email")
 
     # ---------- daily nudges ----------
     def _due(self, name, hhmm, default):
         h, m = _hm(hhmm, default)
         now = datetime.now()
         today = now.strftime("%Y-%m-%d")
+        forced = {"clashes": "clashes", "vh3": "vh3", "waiting": "waiting", "wrap": "wrap"}.get(name) in self._force
+        if forced:
+            self.state["done"][name] = today
+            self._save()
+            return True
         if now.weekday() >= 5 or self.state["done"].get(name) == today:
             return False
         if now.hour * 60 + now.minute < h * 60 + m or (now.hour * 60 + now.minute) - (h * 60 + m) > 120:
@@ -250,6 +324,7 @@ class Watcher:
             q = self.quiet_quotes()
             if q:
                 parts.append(q)
+        self._note("waiting", "Nobody waiting on you" if not parts else f"Found {len(parts)} thing(s) to chase")
         if parts:
             self.alert(" ".join(parts), "Waiting on you", speak=True)
 
@@ -289,6 +364,7 @@ class Watcher:
         if not sent:
             return
         self.state["scanned_sent"] += [i for i, _ in sent]
+        self._note("promises", f"Read {len(sent)} sent emails", busy=True)
         today = datetime.now().strftime("%A %Y-%m-%d %H:%M")
         prompt = (f"These are emails {user_name(self.s)} SENT. Today is {today}.\n"
                   "1) Find commitments they made: things they said they'd do or send, with any deadline "
@@ -315,6 +391,9 @@ class Watcher:
                 self.state["quotes"].append({"id": q.get("id"), "to": str(q["to"])[:80], "about": str(q.get("about") or "")[:120],
                                              "sent": datetime.now().strftime("%Y-%m-%d"), "nudged": False})
         self._save()
+        open_n = sum(1 for p in self.state["promises"] if p["status"] == "open")
+        quotes_n = sum(1 for q in self.state["quotes"] if not q.get("nudged"))
+        self._note("promises", f"{open_n} open promise(s), {quotes_n} quote(s) being watched", busy=False)
 
     def _promise_reminders(self):
         """Remind on the morning a promise is due (or two hours before a set time)."""
@@ -441,6 +520,7 @@ class Watcher:
             return
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         issues = self.clashes(today, 2)
+        self._note("clashes", f"Checked today and tomorrow: {len(issues)} issue(s)")
         if issues:
             self.alert("Diary check: " + " ".join(issues[:4]), "Diary clash")
 
@@ -463,6 +543,7 @@ class Watcher:
         self.state["vh3_seen"] = list(seen | {t.get("summary") for t in crit})[-500:]
         self._save()
         warnings = sum(1 for t in data.get("triggers", []) if t.get("severity") == "warning")
+        self._note("vh3", f"{len(crit)} critical, {warnings} warnings ({len(new)} new critical)")
         if new:
             top = "; ".join(t.get("summary", "") for t in new[:3])
             more = f" and {len(new) - 3} more" if len(new) > 3 else ""

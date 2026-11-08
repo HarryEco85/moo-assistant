@@ -226,7 +226,8 @@ class MooWindow:
         header.pack(side="top", fill="x", padx=22, pady=(16, 0))
         self.title_label = tk.Label(header, text="", bg=BG, fg=TEXT, font=(FONT, 15, "bold"))
         self.title_label.pack(side="left")
-        for symbol, cmd, tip in (("⚙", self.open_settings, "Settings"), ("◼", self.app.stop_speaking, "Stop")):
+        for symbol, cmd, tip in (("⚙", self.open_settings, "Settings"), ("▦", self.open_office, "Office"),
+                                 ("◼", self.app.stop_speaking, "Stop")):
             b = tk.Label(header, text=symbol, bg=BG, fg=FAINT, font=("Segoe UI Symbol", 13), cursor="hand2")
             b.pack(side="right", padx=(14, 0))
             b.bind("<Button-1>", lambda e, c=cmd: c())
@@ -334,6 +335,13 @@ class MooWindow:
             self._settings.win.lift()
             return
         self._settings = SettingsWindow(self)
+
+    def open_office(self):
+        from .office import OfficeWindow
+        if getattr(self, "_office", None) and self._office.win.winfo_exists():
+            self._office.win.lift()
+            return
+        self._office = OfficeWindow(self)
 
     def apply_appearance(self):
         s = self.app.settings

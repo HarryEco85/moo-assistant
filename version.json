@@ -1,4 +1,4 @@
 {
-  "version": "1.13.1",
-  "notes": "VH3: Moo now digests BigChange warnings into a clear summary, and checks each weekday morning for new critical issues."
+  "version": "1.14.0",
+  "notes": "Moo's office: a live board of her background workers. Click the ▦ button or say 'show me the office'."
 }

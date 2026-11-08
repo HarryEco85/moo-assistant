@@ -19,6 +19,7 @@ SNOOZE = re.compile(r"\b(quiet|shh|no (alerts|interruptions)|do ?n[o']t disturb|
                     r"(an?|one|\d+|half an?)\s*(hour|hours|hr|minutes?|mins?)\b", re.I)
 YES = re.compile(r"^(yes|yeah|yep|yup|go on|please( do)?|sure|ok(ay)?|do it)\b.{0,30}$", re.I)
 NO = re.compile(r"^(no|nope|nah|don'?t|no thanks?|leave it|skip( it)?)\b.{0,30}$", re.I)
+OFFICE = re.compile(r"\b(show|open)\b.{0,12}\b(office|workers|board)\b", re.I)
 UPDATE_CHECK = re.compile(r"\b(check|look) (for )?(an? )?updates?\b|\bany updates?\b", re.I)
 UPDATE_INSTALL = re.compile(r"\b(install|do|run|get|apply) (the |that )?update\b|\bupdate yourself\b", re.I)
 
@@ -303,6 +304,10 @@ class MooApp:
             return
         if getattr(self, "pending_memory", None) and (YES.match(text.strip()) or NO.match(text.strip())):
             self.say(self.answer_memory(bool(YES.match(text.strip()))))
+            return None
+        if OFFICE.search(text):
+            self.ui.later(self.ui.open_office)
+            self.say("Here's the office. Everyone's at their desks.")
             return None
         m = SNOOZE.search(text)
         if m:

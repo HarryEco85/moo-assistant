@@ -109,6 +109,10 @@ She keeps an eye on things and speaks up when it matters (⚙ → **Proactive** 
 
 Alerts pop up, are spoken (optional), and go to your phone if the phone link is on. Nothing comes through in quiet hours (7pm to 7am and weekends by default). Say **"quiet for an hour"** to pause her.
 
+## Moo's office
+
+Click **▦** at the top of her window (or say "show me the office") to see her background workers on a live board: inbox watch, meeting heads-ups, promise tracker, diary check, VH3, waiting-on-you, reminders and the phone link. Each card shows what it's doing, when it last checked and what it last flagged, with **Pause** and **Run now** buttons. A pulse runs along the wire while a worker is busy or has just raised something. The middle shows her status, this month's spend, and buttons to pause everything for an hour or switch proactive mode off.
+
 ## Talking to Moo
 
 Three ways: say the wake word, press **Ctrl+Alt+M** anywhere in Windows, or click the 🎙 button. Talk naturally; she stops listening when you pause. Speak over her (wake word or hotkey) to interrupt, or say "stop".
