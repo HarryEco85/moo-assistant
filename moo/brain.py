@@ -48,6 +48,7 @@ Writing for {user} (emails, replies, rewrites, quote or RAMS wording):
 - "This", "what I've copied", "the text I copied" means the clipboard: use read_clipboard.
 
 Tools:
+- {user} can also reach you from their phone through Telegram (the phone link). When it's on, reminders and the morning briefing are sent to the phone too, and you can send things there with send_to_phone. Never guess what's connected: use check_connections.
 - Email and calendar cover both Outlook (work) and Gmail (personal) unless {user} names one. Say which account something is in when it matters.
 - For "summarise my day" / "morning briefing": check today's calendar, then unread and recent inbox emails (last 18 hours), then today's weather for {home}, then due reminders. Give a short spoken rundown: meetings first (with drive time from {home} for any meeting that has an address or postcode), then emails that look like they need {user}'s attention (customers, deadlines, complaints), then the weather in one line (flag rain timing and strong wind, it matters for outdoor work), then reminders. Skip anything that isn't set up without fuss.
 - Weather and travel: default location is {home}. Travel times have no live traffic, so say "about" and mention rush hour if relevant.
@@ -146,6 +147,10 @@ def _tools():
         {"name": "travel_time", "description": "Driving time and distance between two UK places (postcodes or towns). No live traffic.",
          "input_schema": {"type": "object", "properties": {
              "origin": {"type": "string"}, "destination": {"type": "string"}}, "required": ["origin", "destination"]}},
+        {"name": "check_connections", "description": "What's connected right now: Outlook, Gmail, Google Calendar, the phone link (Telegram), web search, voice and hearing. Use whenever asked what you can reach or whether something is connected.",
+         "input_schema": {"type": "object", "properties": {}}},
+        {"name": "send_to_phone", "description": "Send a text message to the user's phone through the Telegram phone link (e.g. a list, a draft, directions, something to remember while out).",
+         "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
         {"name": "remember", "description": "Save a lasting fact or preference the user asked you to remember. Never passwords or account numbers.",
          "input_schema": {"type": "object", "properties": {"fact": {"type": "string"}}, "required": ["fact"]}},
         {"name": "forget", "description": "Delete saved memories matching these words.",
@@ -154,12 +159,14 @@ def _tools():
 
 
 class Brain:
-    def __init__(self, settings, reminders, status=None, show_draft=None):
+    def __init__(self, settings, reminders, status=None, show_draft=None, connections=None, phone=None):
         self.settings = settings
         self.reminders = reminders
         self.status = status or (lambda s: None)  # callback for "Checking Outlook..." etc.
         self.show_draft = show_draft or (lambda text, label: None)  # shows written pieces in the window
         self._search_ok = True
+        self.connections = connections or (lambda: "Unknown.")  # live status of every link, from the app
+        self.phone = phone  # the Telegram link, for send_to_phone
         self.memory = Memory()
         self.history = History()
         self.usage = Usage()
@@ -292,6 +299,13 @@ class Brain:
             if name == "travel_time":
                 self.status("Working out the drive")
                 return extras.travel_time(args["origin"], args["destination"])
+            if name == "check_connections":
+                return self.connections()
+            if name == "send_to_phone":
+                if not (self.phone and self.phone.paired_id() and self.settings.get("phone_enabled")):
+                    return "The phone link isn't set up or paired yet (Settings > Phone)."
+                self.phone.send_text(args["text"])
+                return "Sent to the phone."
             if name == "remember":
                 return self.memory.remember(args["fact"])
             if name == "forget":

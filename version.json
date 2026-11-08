@@ -1,4 +1,4 @@
 {
-  "version": "1.8.0",
-  "notes": "Moo on your phone: message or voice-note her through Telegram, and get reminders and the morning briefing on your phone."
+  "version": "1.8.1",
+  "notes": "She now knows about the phone link and can check what's connected, and she understands you faster on PCs without a graphics card."
 }

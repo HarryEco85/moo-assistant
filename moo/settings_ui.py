@@ -426,6 +426,8 @@ class SettingsWindow:
                 messagebox.showwarning("Moo", "Briefing time should look like 08:00.", parent=self.win)
                 return
         old_whisper, old_hotkey = s.get("whisper_model"), s.get("hotkey")
+        if self.vars["whisper_model"][0].get() != next(c[1] for c in WHISPER_CHOICES if c[0] == old_whisper):
+            s["whisper_model_chosen"] = True  # user picked one: respect it even on a slow PC
 
         for k, w in self.vars.items():
             if k in ("api_key", "azure_key", "autostart", "gmail_app_password", "gcal_ics_url", "telegram_token"):

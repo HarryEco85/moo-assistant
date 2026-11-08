@@ -97,7 +97,8 @@ class MooApp:
     def _make_brain(self):
         from .brain import Brain
         self.brain = Brain(self.settings, self.reminders, status=lambda s: self.ui.set_state("thinking", s),
-                           show_draft=lambda text, label: self.ui.add_draft(text, label))
+                           show_draft=lambda text, label: self.ui.add_draft(text, label),
+                           connections=self.connections_report, phone=self.phone)
 
     def _load_voice(self):
         from .voice import Ears, Mouth
@@ -368,6 +369,35 @@ class MooApp:
             reply = self._answer("Give me my morning briefing.")
         if reply and self.settings.get("phone_briefing", True):
             self.phone.notify("Morning briefing\n\n" + reply)
+
+    def connections_report(self) -> str:
+        from .config import get_secret
+        s, lines = self.settings, []
+        if s.get("outlook_mode", "desktop") == "online":
+            lines.append("Outlook: Microsoft 365 online " + ("(IDs entered)" if s.get("ms_client_id") else "(not set up: needs IT company IDs)"))
+        else:
+            try:
+                lines.append("Outlook: " + self.brain.outlook.test())
+            except Exception as e:
+                lines.append(f"Outlook (classic app on this PC): not reachable ({str(e)[:80]})")
+        gm = s.get("gmail_address") and get_secret("gmail_app_password")
+        lines.append(f"Gmail: {'set up for ' + s['gmail_address'] if gm else 'not set up'}")
+        lines.append(f"Google Calendar: {'set up' if get_secret('gcal_ics_url') else 'not set up'}")
+        ph = self.phone
+        if not s.get("phone_enabled"):
+            lines.append("Phone link (Telegram): switched off")
+        else:
+            lines.append(f"Phone link (Telegram): {ph.status}; " + ("paired with the user's phone" if ph.paired_id()
+                         else "NOT paired yet: send the pairing code from Settings > Phone to the bot"))
+            if ph.paired_id():
+                lines.append(f"  Reminders to phone: {'on' if s.get('phone_reminders', True) else 'off'}; "
+                             f"briefing to phone: {'on' if s.get('phone_briefing', True) else 'off'}")
+        lines.append(f"Web search: {'on' if s.get('web_search', True) else 'off'}")
+        lines.append(f"Voice: {s.get('tts_engine', 'natural')} ({s.get('natural_voice') if s.get('tts_engine', 'natural') == 'natural' else s.get('azure_voice', '')})")
+        if self.ears:
+            lines.append(f"Hearing: {'on ' + (self.ears.whisper_device or 'loading') if self.ears.available else 'no microphone'}"
+                         f"; wake word {'on' if s.get('wake_word_enabled', True) and self.ears.wake_phrase else 'off'}")
+        return "\n".join(lines)
 
     def ask_from_phone(self, text, heard=False):
         """A message from Telegram: answer in text (no speaking on the PC)."""

@@ -444,6 +444,8 @@ class Ears:
         from faster_whisper import WhisperModel
         size = self.settings.get("whisper_model", "small.en")
         for device, compute in (("cuda", "float16"), ("cpu", "int8")):
+            if device == "cpu" and size == "small.en" and not self.settings.get("whisper_model_chosen"):
+                size = "base.en"  # no graphics card: the lighter model is about 3x quicker on the processor
             try:
                 model = WhisperModel(size, device=device, compute_type=compute,
                                      download_root=str(MODELS_DIR / "whisper"))
