@@ -14,6 +14,8 @@ log = logging.getLogger("moo")
 BRIEF_FILE = DATA_DIR / "last_briefing.json"
 STOP_WORDS = re.compile(r"^(stop|shush|quiet|be quiet|that's enough|cancel|never ?mind)[.!]?$", re.I)
 OUTLOOK_SIGNIN = re.compile(r"\b(sign|log) ?in(to)? (to )?outlook\b|\bconnect outlook\b", re.I)
+SNOOZE = re.compile(r"\b(quiet|shh|no (alerts|interruptions)|do ?n[o']t disturb|leave me alone)\b.*?\b(for )?"
+                    r"(an?|one|\d+|half an?)\s*(hour|hours|hr|minutes?|mins?)\b", re.I)
 UPDATE_CHECK = re.compile(r"\b(check|look) (for )?(an? )?updates?\b|\bany updates?\b", re.I)
 UPDATE_INSTALL = re.compile(r"\b(install|do|run|get|apply) (the |that )?update\b|\bupdate yourself\b", re.I)
 
@@ -34,7 +36,9 @@ class MooApp:
         self.ears = None
         self.brain = None
         from .phone import Phone
+        from .proactive import Watcher
         self.phone = Phone(self)
+        self.watcher = Watcher(self)
 
     # ---------- startup ----------
     def start(self):
@@ -48,6 +52,7 @@ class MooApp:
         self._footer()
         self.pending_update = None
         self.phone.start()
+        self.watcher.start()
         if self.settings.get("auto_update", True):
             threading.Thread(target=self._check_updates, args=(True,), daemon=True, name="update-check").start()
         self.ui.run()
@@ -292,6 +297,13 @@ class MooApp:
         if STOP_WORDS.match(text.strip()):
             self.stop_speaking()
             return
+        m = SNOOZE.search(text)
+        if m:
+            amount, unit = m.group(4).lower(), m.group(5).lower()
+            n = 1 if amount in ("a", "an", "one") else (0.5 if amount.startswith("half") else int(amount) if amount.isdigit() else 1)
+            minutes = int(n * 60) if unit.startswith("h") else int(n)
+            self.say(self.watcher.snooze(max(5, minutes)))
+            return None
         if UPDATE_INSTALL.search(text) and getattr(self, "pending_update", None):
             self.install_update()
             return
@@ -481,6 +493,7 @@ class MooApp:
         try:
             self.reminders.stop()
             self.phone.stop()
+            self.watcher.stop()
             if self.mouth:
                 self.mouth.stop()
             if self.ears and self.ears.stream:

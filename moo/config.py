@@ -91,6 +91,22 @@ DEFAULTS = {
     "phone_voice_replies": True,  # voice note in, voice note back
     "phone_reminders": True,
     "phone_briefing": True,
+    # Proactive: she keeps an eye on things
+    "proactive": True,
+    "email_alerts": True,
+    "email_check_min": 10,
+    "vip_senders": "",  # names or addresses that always count as important
+    "meeting_alerts": True,
+    "meeting_lead_min": 15,
+    "waiting_nudge": True,
+    "waiting_time": "16:00",
+    "wrap_up": False,
+    "wrap_time": "17:30",
+    "quiet_from": "19:00",
+    "quiet_to": "07:00",
+    "quiet_weekends": True,
+    "alerts_spoken": True,
+    "alerts_to_phone": True,
     # Updates
     "auto_update": True,
     "update_repo": "HarryEco85/moo-assistant",

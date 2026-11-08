@@ -86,6 +86,17 @@ Message her or send voice notes from anywhere. She replies in text, plus a voice
 
 Once she replies "Paired", only your Telegram account can use her; anyone else who finds the bot is ignored.
 
+## Proactive Moo
+
+She keeps an eye on things and speaks up when it matters (⚙ → **Proactive** to tune or switch off):
+
+- **Important new emails** in Outlook and Gmail, checked every 10 minutes. She ignores newsletters and noise; add names to **Always important** for people who should always get through.
+- **Heads-up before meetings** (15 minutes by default), with drive time from home when there's an address.
+- **"Waiting on you"** at 4pm on weekdays: people who emailed and haven't had a reply.
+- **End-of-day wrap-up** (off by default).
+
+Alerts pop up, are spoken (optional), and go to your phone if the phone link is on. Nothing comes through in quiet hours (7pm to 7am and weekends by default). Say **"quiet for an hour"** to pause her.
+
 ## Talking to Moo
 
 Three ways: say the wake word, press **Ctrl+Alt+M** anywhere in Windows, or click the 🎙 button. Talk naturally; she stops listening when you pause. Speak over her (wake word or hotkey) to interrupt, or say "stop".

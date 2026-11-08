@@ -43,6 +43,7 @@ class SettingsWindow:
         self.tab_look = self._tab(nb, "Look")
         self.tab_persona = self._tab(nb, "Personality")
         self.tab_listen = self._tab(nb, "Listening")
+        self.tab_pro = self._tab(nb, "Proactive")
         self.tab_accounts = self._tab(nb, "Accounts")
         self.tab_phone = self._tab(nb, "Phone")
         self.tab_system = self._tab(nb, "System")
@@ -50,6 +51,7 @@ class SettingsWindow:
         self._build_look()
         self._build_persona()
         self._build_listening()
+        self._build_proactive()
         self._build_accounts()
         self._build_phone()
         self._build_system()
@@ -288,6 +290,39 @@ class SettingsWindow:
                     note="Names and trade terms you say often, separated by commas.")
         self._combo(t, "whisper_model", "Speech recognition", WHISPER_CHOICES, s.get("whisper_model", "small.en"),
                     note="A change downloads the new model in the background the first time.")
+
+    def _build_proactive(self):
+        t, s = self.tab_pro, self.s
+        tk.Label(t, text="She keeps an eye on things and speaks up when it matters.", bg=SURFACE, fg=MUTED,
+                 font=(FONT, 9), anchor="w").pack(fill="x", pady=(10, 0))
+        self._check(t, "proactive", "Be proactive (master switch)", s.get("proactive", True))
+        self._check(t, "email_alerts", "Tell me about important new emails", s.get("email_alerts", True))
+        self._slider(t, "email_check_min", "Check email every", 5, 30, s.get("email_check_min", 10), 5,
+                     "5 min", "30 min")
+        self._entry(t, "vip_senders", "Always important (names or emails)", s.get("vip_senders", ""),
+                    note="Comma separated, e.g. your MD, key customers. Their emails always get flagged.")
+        self._check(t, "meeting_alerts", "Heads-up before meetings (with drive time)", s.get("meeting_alerts", True))
+        self._slider(t, "meeting_lead_min", "How long before", 5, 60, s.get("meeting_lead_min", 15), 5, "5 min", "1 hour")
+        self._check(t, "waiting_nudge", "Afternoon nudge: who's waiting on a reply", s.get("waiting_nudge", True))
+        self._entry(t, "waiting_time", "Nudge time (weekdays)", s.get("waiting_time", "16:00"))
+        self._check(t, "wrap_up", "End-of-day wrap-up", s.get("wrap_up", False))
+        self._entry(t, "wrap_time", "Wrap-up time (weekdays)", s.get("wrap_time", "17:30"))
+        self._label(t, "Quiet hours", "No alerts between these times. Reminders you set still come through.")
+        row = tk.Frame(t, bg=SURFACE)
+        row.pack(fill="x")
+        for key, default in (("quiet_from", "19:00"), ("quiet_to", "07:00")):
+            e = tk.Entry(row, bg=SURFACE_HI, fg=TEXT, relief="flat", insertbackground=TEXT, font=(FONT, 10),
+                         width=8, highlightthickness=0, bd=0)
+            e.insert(0, s.get(key, default))
+            e.pack(side="left", ipady=6, padx=(0, 6))
+            self.vars[key] = e
+            if key == "quiet_from":
+                tk.Label(row, text="to", bg=SURFACE, fg=MUTED, font=(FONT, 10)).pack(side="left", padx=(0, 6))
+        self._check(t, "quiet_weekends", "Quiet at weekends", s.get("quiet_weekends", True))
+        self._check(t, "alerts_spoken", "Say alerts out loud on the PC", s.get("alerts_spoken", True))
+        self._check(t, "alerts_to_phone", "Send alerts to my phone", s.get("alerts_to_phone", True))
+        tk.Label(t, text='Say "quiet for an hour" any time to pause her.', bg=SURFACE, fg=FAINT, font=(FONT, 8),
+                 anchor="w").pack(fill="x", pady=(8, 0))
 
     def _build_accounts(self):
         t, s = self.tab_accounts, self.s

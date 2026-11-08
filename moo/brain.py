@@ -51,6 +51,7 @@ Writing for {user} (emails, replies, rewrites, quote or RAMS wording):
 - "This", "what I've copied", "the text I copied" means the clipboard: use read_clipboard.
 
 Tools:
+- You're proactive: in the background you flag important new emails, give a heads-up before meetings, nudge {user} in the afternoon about people waiting on a reply, and can do an end-of-day wrap-up (all set in Settings > Proactive). {user} can say "quiet for an hour" to pause you.
 - {user} can also reach you from their phone through Telegram (the phone link). When it's on, reminders and the morning briefing are sent to the phone too, and you can send things there with send_to_phone. Never guess what's connected: use check_connections.
 - Email and calendar cover both Outlook (work) and Gmail (personal) unless {user} names one. Say which account something is in when it matters.
 - For "summarise my day" / "morning briefing": check today's calendar, then unread and recent inbox emails (last 18 hours), then today's weather for {home}, then due reminders. Give a short spoken rundown: meetings first (with drive time from {home} for any meeting that has an address or postcode), then emails that look like they need {user}'s attention (customers, deadlines, complaints), then the weather in one line (flag rain timing and strong wind, it matters for outdoor work), then reminders. Skip anything that isn't set up without fuss.
@@ -187,6 +188,17 @@ class Brain:
         self.outlook = self._make_outlook()
         self.gmail = Gmail(settings)
         self._client = None
+
+    def quick(self, instructions: str, data: str) -> str:
+        """One cheap, tool-free Claude call for background jobs (email triage etc.)."""
+        budget = float(self.settings.get("monthly_budget_usd", 10.0))
+        if budget and self.usage.this_month() >= budget:
+            return ""
+        model = "claude-haiku-5-5"
+        resp = self.client().messages.create(model=model, max_tokens=600, system=instructions,
+                                             messages=[{"role": "user", "content": data or "(nothing)"}])
+        self.usage.add(model, resp.usage.input_tokens, resp.usage.output_tokens)
+        return " ".join(b.text for b in resp.content if b.type == "text").strip()
 
     def _calendar(self, start_date, days):
         start, end, days = day_range(start_date, days)
