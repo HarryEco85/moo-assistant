@@ -1,4 +1,4 @@
 {
-  "version": "1.13.0",
-  "notes": "VH3 connection: ask Moo about BigChange jobs, SLA warnings, quotes and invoices (and Connie, if you allow it)."
+  "version": "1.13.1",
+  "notes": "VH3: Moo now digests BigChange warnings into a clear summary, and checks each weekday morning for new critical issues."
 }

@@ -114,7 +114,9 @@ DEFAULTS = {
     # VH3 (BigChange data and Connie) over MCP; sign-in tokens kept in Credential Manager
     "vh3_url": "",
     "vh3_enabled": True,
-    "vh3_allow_actions": False,  # let Moo use Connie (who can also offer to send things)
+    "vh3_allow_actions": False,
+    "vh3_alerts": True,  # morning check for new critical issues
+    "vh3_alert_time": "08:30",  # let Moo use Connie (who can also offer to send things)
     # Updates
     "auto_update": True,
     "update_repo": "HarryEco85/moo-assistant",

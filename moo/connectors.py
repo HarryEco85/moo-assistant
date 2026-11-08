@@ -27,6 +27,56 @@ class NotConnected(Exception):
     pass
 
 
+_DROP = {"companyId", "company_id", "evidence", "thresholdsApplied", "embedding", "raw", "metadata", "html"}
+
+
+def _slim(o, depth=0):
+    """Drop bulky fields and shorten long strings so big results stay readable."""
+    if isinstance(o, dict):
+        return {k: _slim(v, depth + 1) for k, v in o.items() if k not in _DROP}
+    if isinstance(o, list):
+        items = [_slim(x, depth + 1) for x in o[:60]]
+        return items + ([f"... {len(o) - 60} more"] if len(o) > 60 else [])
+    if isinstance(o, str) and len(o) > 400:
+        return o[:400] + "…"
+    return o
+
+
+def compact(tool, text, limit=16000):
+    """Big VH3 results, made digestible. Sentinels get a proper summary."""
+    if len(text) <= limit:
+        return text
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return text[:limit] + f"\n... (cut: {len(text)} characters in total)"
+    if tool == "run_sentinels" and isinstance(data, dict) and "triggers" in data:
+        return sentinel_digest(data)
+    return json.dumps(_slim(data), default=str)[:limit]
+
+
+def sentinel_digest(data, max_items=60) -> str:
+    from collections import Counter
+    trig = data.get("triggers", [])
+    order = {"critical": 0, "warning": 1, "info": 2}
+    counts = Counter((t.get("severity", "info"), t.get("sentinelName", "?")) for t in trig)
+    lines = [f"VH3 checks run {data.get('runAt', '')[:16]}: {data.get('sentinelsTriggered', '?')} of "
+             f"{data.get('sentinelsChecked', '?')} checks triggered, {len(trig)} items."]
+    lines += [f"- {n}: {k} {sev}" for (sev, n), k in sorted(counts.items(), key=lambda kv: (order.get(kv[0][0], 3), -kv[1]))]
+    serious = sorted([t for t in trig if t.get("severity") in ("critical", "warning")],
+                     key=lambda t: order.get(t.get("severity"), 3))
+    if serious:
+        lines.append("Critical and warning items:")
+        for t in serious[:max_items]:
+            act = (t.get("recommendedActions") or [""])[0]
+            act = act.get("action", "") if isinstance(act, dict) else str(act)
+            lines.append(f"- [{t.get('severity')}] {t.get('sentinelName')}: {t.get('summary', '')}"
+                         + (f" (suggested: {act[:120]})" if act else ""))
+        if len(serious) > max_items:
+            lines.append(f"... and {len(serious) - max_items} more")
+    return "\n".join(lines)
+
+
 class _Storage:
     """Keeps the OAuth tokens and client registration in Credential Manager."""
 
@@ -193,7 +243,12 @@ class MCPConnector:
         for c in res.content or []:
             parts.append(getattr(c, "text", None) or json.dumps(getattr(c, "model_dump", lambda: str(c))(), default=str))
         text = "\n".join(parts) or "(no result)"
-        return UNTRUSTED + text[:20000]
+        return UNTRUSTED + compact(name, text)
+
+    def raw_call(self, name, args=None) -> str:
+        """Call a tool and return its raw text (for background checks)."""
+        res = self._run(self._session_call(lambda s: s.call_tool(name, args or {})))
+        return "\n".join(getattr(c, "text", "") or "" for c in res.content or [])
 
     def status(self) -> str:
         if not self.url:

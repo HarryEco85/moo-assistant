@@ -111,7 +111,7 @@ class Watcher:
         while not self._stop.is_set():
             if self.s.get("proactive", True) and self.app.brain:
                 for job in (self._meetings, self._emails, self._scan_promises, self._promise_reminders,
-                            self._clash_check, self._waiting, self._wrap):
+                            self._clash_check, self._vh3_check, self._waiting, self._wrap):
                     try:
                         job()
                     except Exception:
@@ -443,3 +443,28 @@ class Watcher:
         issues = self.clashes(today, 2)
         if issues:
             self.alert("Diary check: " + " ".join(issues[:4]), "Diary clash")
+
+    # ---------- VH3 (BigChange) morning check ----------
+    def _vh3_check(self):
+        vh3 = self.app.brain.vh3
+        if not (self.s.get("vh3_alerts", True) and vh3.enabled and vh3._tools and
+                any(t["name"] == "run_sentinels" for t in vh3._tools)):
+            return
+        if not self._due("vh3", self.s.get("vh3_alert_time", "08:30"), (8, 30)):
+            return
+        try:
+            data = json.loads(vh3.raw_call("run_sentinels"))
+        except Exception as e:
+            log.info("VH3 check skipped: %s", e)
+            return
+        seen = set(self.state.setdefault("vh3_seen", []))
+        crit = [t for t in data.get("triggers", []) if t.get("severity") == "critical"]
+        new = [t for t in crit if t.get("summary") not in seen]
+        self.state["vh3_seen"] = list(seen | {t.get("summary") for t in crit})[-500:]
+        self._save()
+        warnings = sum(1 for t in data.get("triggers", []) if t.get("severity") == "warning")
+        if new:
+            top = "; ".join(t.get("summary", "") for t in new[:3])
+            more = f" and {len(new) - 3} more" if len(new) > 3 else ""
+            self.alert(f"BigChange: {len(new)} new critical issue{'s' if len(new) != 1 else ''}: {top}{more}. "
+                       f"Plus {warnings} warnings. Ask me for the details.", "VH3 check")

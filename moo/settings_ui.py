@@ -310,6 +310,8 @@ class SettingsWindow:
         self._slider(t, "quote_followup_days", "Chase a quote after", 3, 21, s.get("quote_followup_days", 7), 1,
                      "3 days", "3 weeks")
         self._check(t, "clash_alerts", "Morning diary check for clashes", s.get("clash_alerts", True))
+        self._check(t, "vh3_alerts", "Morning VH3 check: tell me about new critical BigChange issues",
+                    s.get("vh3_alerts", True))
         self._check(t, "learn_memory", "Offer to remember things she notices about me", s.get("learn_memory", True))
         self._check(t, "wrap_up", "End-of-day wrap-up", s.get("wrap_up", False))
         self._entry(t, "wrap_time", "Wrap-up time (weekdays)", s.get("wrap_time", "17:30"))
