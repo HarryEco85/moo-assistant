@@ -1,4 +1,5 @@
 """Wires everything together: window, voice, wake word, brain, reminders, briefing."""
+import json
 import logging
 import queue
 import re
@@ -16,6 +17,8 @@ STOP_WORDS = re.compile(r"^(stop|shush|quiet|be quiet|that's enough|cancel|never
 OUTLOOK_SIGNIN = re.compile(r"\b(sign|log) ?in(to)? (to )?outlook\b|\bconnect outlook\b", re.I)
 SNOOZE = re.compile(r"\b(quiet|shh|no (alerts|interruptions)|do ?n[o']t disturb|leave me alone)\b.*?\b(for )?"
                     r"(an?|one|\d+|half an?)\s*(hour|hours|hr|minutes?|mins?)\b", re.I)
+YES = re.compile(r"^(yes|yeah|yep|yup|go on|please( do)?|sure|ok(ay)?|do it)\b.{0,30}$", re.I)
+NO = re.compile(r"^(no|nope|nah|don'?t|no thanks?|leave it|skip( it)?)\b.{0,30}$", re.I)
 UPDATE_CHECK = re.compile(r"\b(check|look) (for )?(an? )?updates?\b|\bany updates?\b", re.I)
 UPDATE_INSTALL = re.compile(r"\b(install|do|run|get|apply) (the |that )?update\b|\bupdate yourself\b", re.I)
 
@@ -105,6 +108,7 @@ class MooApp:
                            show_draft=lambda text, label: self.ui.add_draft(text, label),
                            connections=self.connections_report, phone=self.phone,
                            show_card=self.show_card)
+        self.brain.watcher = self.watcher
 
     def _load_voice(self):
         from .voice import Ears, Mouth
@@ -297,6 +301,9 @@ class MooApp:
         if STOP_WORDS.match(text.strip()):
             self.stop_speaking()
             return
+        if getattr(self, "pending_memory", None) and (YES.match(text.strip()) or NO.match(text.strip())):
+            self.say(self.answer_memory(bool(YES.match(text.strip()))))
+            return None
         m = SNOOZE.search(text)
         if m:
             amount, unit = m.group(4).lower(), m.group(5).lower()
@@ -352,6 +359,7 @@ class MooApp:
         self.ui.add_message("Moo", reply)
         if not speaking:
             self.ui.set_state("idle")
+        threading.Thread(target=self._learn, args=(text, reply), daemon=True, name="learn").start()
         if getattr(self, "_heard", None) is not None:
             timing["heard"] = self._heard
             self._heard = None
@@ -390,6 +398,49 @@ class MooApp:
             reply = self._answer("Give me my morning briefing.")
         if reply and self.settings.get("phone_briefing", True):
             self.phone.notify("Morning briefing\n\n" + reply)
+
+    # ---------- learning memory ----------
+    def _learn(self, user_text, reply, from_phone=False):
+        """Notice a lasting fact or preference in the exchange and offer to remember it."""
+        if not self.settings.get("learn_memory", True) or len(user_text) < 15 or getattr(self, "pending_memory", None):
+            return
+        try:
+            known = self.brain.memory.as_prompt()
+            declined = "; ".join(self.watcher.state.get("declined_facts", [])[-30:]) or "none"
+            reply_json = self.brain.quick(
+                f"You help an assistant learn about {user_name(self.settings)}. From this exchange, is there ONE lasting "
+                "fact or preference about them worth remembering for the future (how they like things done, people "
+                "and roles in their work, recurring routines)? Not one-off tasks, not things already known, never "
+                "passwords, money details, health or anything sensitive.\n"
+                f"Already known:\n{known}\nDeclined before: {declined}\n"
+                'Reply JSON only: {"fact": "<short, third person, e.g. Prefers calls before 10am>"} or {"fact": null}.',
+                f"USER: {user_text}\nASSISTANT: {reply}")
+            m = re.search(r"\{.*\}", reply_json or "", re.S)
+            fact = (json.loads(m.group(0)).get("fact") if m else None) or ""
+        except Exception:
+            log.exception("Learning check failed")
+            return
+        fact = fact.strip().rstrip(".")
+        if not fact or len(fact) > 160 or fact.lower() in known.lower():
+            return
+        self.pending_memory = fact
+        if from_phone:
+            self.phone.notify(f"Shall I remember: \"{fact}\"? Reply yes or no.")
+        else:
+            self.ui.add_choice(f"Shall I remember: \"{fact}\"?",
+                               [("Remember", lambda: self.say(self.answer_memory(True))),
+                                ("No thanks", lambda: self.ui.add_message("sys", self.answer_memory(False)))])
+
+    def answer_memory(self, yes: bool) -> str:
+        fact, self.pending_memory = getattr(self, "pending_memory", None), None
+        if not fact:
+            return "Nothing to remember."
+        if yes:
+            out = self.brain.memory.remember(fact)
+            return "Noted." if out.startswith("Remembered") else out
+        self.watcher.state.setdefault("declined_facts", []).append(fact)
+        self.watcher._save()
+        return "Fair enough, I'll forget I noticed."
 
     def show_card(self, kind, data):
         """Draw a visual card (diary or weather) in the window, and keep it for the phone if needed."""
@@ -448,6 +499,10 @@ class MooApp:
         if not self.busy.acquire(timeout=90):
             return "I'm tied up with something on the PC. Try again in a moment.", drafts
         old_show = self.brain.show_draft
+        if getattr(self, "pending_memory", None) and (YES.match(text.strip()) or NO.match(text.strip())):
+            self.busy.release()
+            self._phone_cards = None
+            return self.answer_memory(bool(YES.match(text.strip()))), drafts
         try:
             self.brain.show_draft = lambda body, label: (drafts.append((label, body)), old_show(body, label))
             self.ui.add_message("You", f"(phone) {text}")
@@ -461,6 +516,7 @@ class MooApp:
                 log.exception("Phone request failed")
                 reply = f"Sorry, something went wrong: {str(e)[:160]}"
             self.ui.add_message("Moo", reply)
+            threading.Thread(target=self._learn, args=(text, reply, True), daemon=True, name="learn").start()
             for png in self._phone_cards:
                 drafts.append(("__image__", png))
             return reply, drafts

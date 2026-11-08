@@ -51,10 +51,11 @@ Writing for {user} (emails, replies, rewrites, quote or RAMS wording):
 - "This", "what I've copied", "the text I copied" means the clipboard: use read_clipboard.
 
 Tools:
+- You track promises {user} makes in sent emails and remind them when due, chase quotes that have gone quiet, and spot diary clashes. You also notice things worth remembering and offer to save them.
 - You're proactive: in the background you flag important new emails, give a heads-up before meetings, nudge {user} in the afternoon about people waiting on a reply, and can do an end-of-day wrap-up (all set in Settings > Proactive). {user} can say "quiet for an hour" to pause you.
 - {user} can also reach you from their phone through Telegram (the phone link). When it's on, reminders and the morning briefing are sent to the phone too, and you can send things there with send_to_phone. Never guess what's connected: use check_connections.
 - Email and calendar cover both Outlook (work) and Gmail (personal) unless {user} names one. Say which account something is in when it matters.
-- For "summarise my day" / "morning briefing": check today's calendar, then unread and recent inbox emails (last 18 hours), then today's weather for {home}, then due reminders. Give a short spoken rundown: meetings first (with drive time from {home} for any meeting that has an address or postcode), then emails that look like they need {user}'s attention (customers, deadlines, complaints), then the weather in one line (flag rain timing and strong wind, it matters for outdoor work), then reminders. Skip anything that isn't set up without fuss.
+- For "summarise my day" / "morning briefing": check today's calendar (and check_diary_clashes for today), any promises due today (list_promises), then unread and recent inbox emails (last 18 hours), then today's weather for {home}, then due reminders. Give a short spoken rundown: meetings first (with drive time from {home} for any meeting that has an address or postcode), then emails that look like they need {user}'s attention (customers, deadlines, complaints), then the weather in one line (flag rain timing and strong wind, it matters for outdoor work), then reminders. Skip anything that isn't set up without fuss.
 - Weather and travel: default location is {home}. Travel times have no live traffic, so say "about" and mention rush hour if relevant.
 - Web search: use it for anything current or outside {user}'s systems (prices, suppliers, news, road closures, regulations, opening hours). Keep the answer short, name the source in passing (e.g. "according to the HSE site"), never read URLs.
 - To find a document: search_files, pick the most likely newest match, then offer to open or read it. If unsure, say the top two.
@@ -160,6 +161,14 @@ def _tools():
         {"name": "travel_time", "description": "Driving time and distance between two UK places (postcodes or towns). No live traffic.",
          "input_schema": {"type": "object", "properties": {
              "origin": {"type": "string"}, "destination": {"type": "string"}}, "required": ["origin", "destination"]}},
+        {"name": "check_diary_clashes", "description": "Check the diary for double bookings, back-to-back site visits that can't be driven in time, and meetings out of hours.",
+         "input_schema": {"type": "object", "properties": {
+             "start_date": {"type": "string", "description": "YYYY-MM-DD"}, "days": {"type": "integer", "description": "Default 2"}},
+             "required": ["start_date"]}},
+        {"name": "list_promises", "description": "Open commitments the user made in sent emails (things they said they'd do or send, with due dates).",
+         "input_schema": {"type": "object", "properties": {}}},
+        {"name": "mark_promise_done", "description": "Mark a promise as done, by its number from list_promises or words from it.",
+         "input_schema": {"type": "object", "properties": {"ref": {"type": "string"}}, "required": ["ref"]}},
         {"name": "check_connections", "description": "What's connected right now: Outlook, Gmail, Google Calendar, the phone link (Telegram), web search, voice and hearing. Use whenever asked what you can reach or whether something is connected.",
          "input_schema": {"type": "object", "properties": {}}},
         {"name": "send_to_phone", "description": "Send a text message to the user's phone through the Telegram phone link (e.g. a list, a draft, directions, something to remember while out).",
@@ -182,6 +191,7 @@ class Brain:
         self.connections = connections or (lambda: "Unknown.")  # live status of every link, from the app
         self.phone = phone  # the Telegram link, for send_to_phone
         self.show_card = show_card or (lambda kind, data: None)  # visual cards in the window
+        self.watcher = None  # the proactive helper (promises, clashes), set by the app
         self.memory = Memory()
         self.history = History()
         self.usage = Usage()
@@ -345,6 +355,16 @@ class Brain:
             if name == "travel_time":
                 self.status("Working out the drive")
                 return extras.travel_time(args["origin"], args["destination"])
+            if name == "check_diary_clashes":
+                if not self.watcher:
+                    return "Not available."
+                start, _, days = day_range(args.get("start_date", ""), args.get("days", 2))
+                issues = self.watcher.clashes(start, days)
+                return "\n".join(issues) if issues else "No clashes found."
+            if name == "list_promises":
+                return self.watcher.open_promises_text() if self.watcher else "Not available."
+            if name == "mark_promise_done":
+                return self.watcher.mark_promise_done(args["ref"]) if self.watcher else "Not available."
             if name == "check_connections":
                 return self.connections()
             if name == "send_to_phone":

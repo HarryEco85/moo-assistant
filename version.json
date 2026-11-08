@@ -1,4 +1,4 @@
 {
-  "version": "1.11.0",
-  "notes": "Proactive Moo: she flags important new emails, gives you a heads-up before meetings, and nudges you about people waiting on a reply. Say 'quiet for an hour' to pause her."
+  "version": "1.12.0",
+  "notes": "Tracks promises you make in emails and reminds you when they're due, chases quotes that go quiet, spots diary clashes, and offers to remember things she learns about you."
 }

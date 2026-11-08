@@ -102,6 +102,10 @@ DEFAULTS = {
     "waiting_time": "16:00",
     "wrap_up": False,
     "wrap_time": "17:30",
+    "promise_tracker": True,  # spot promises in sent mail and remind when due; chase quiet quotes
+    "quote_followup_days": 7,
+    "clash_alerts": True,
+    "learn_memory": True,  # offer to remember things she notices
     "quiet_from": "19:00",
     "quiet_to": "07:00",
     "quiet_weekends": True,

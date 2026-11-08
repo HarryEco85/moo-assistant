@@ -94,6 +94,10 @@ She keeps an eye on things and speaks up when it matters (⚙ → **Proactive** 
 - **Heads-up before meetings** (15 minutes by default), with drive time from home when there's an address.
 - **"Waiting on you"** at 4pm on weekdays: people who emailed and haven't had a reply.
 - **End-of-day wrap-up** (off by default).
+- **Promise tracker:** she reads your sent emails for things you've said you'll do ("I'll get the quote over by Friday") and reminds you when they're due, unless you've already sent it. Ask "what have I promised?" any time.
+- **Quotes gone quiet:** quotes with no reply after 7 days get mentioned in the afternoon nudge.
+- **Diary clashes:** each weekday morning she checks today and tomorrow for double bookings, site visits you can't drive between in time, and meetings out of hours.
+- **Learning:** when she notices something worth knowing about you ("prefers calls before 10"), she asks "Shall I remember that?" Nothing is saved unless you say yes.
 
 Alerts pop up, are spoken (optional), and go to your phone if the phone link is on. Nothing comes through in quiet hours (7pm to 7am and weekends by default). Say **"quiet for an hour"** to pause her.
 

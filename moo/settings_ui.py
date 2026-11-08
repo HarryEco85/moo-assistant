@@ -305,6 +305,12 @@ class SettingsWindow:
         self._slider(t, "meeting_lead_min", "How long before", 5, 60, s.get("meeting_lead_min", 15), 5, "5 min", "1 hour")
         self._check(t, "waiting_nudge", "Afternoon nudge: who's waiting on a reply", s.get("waiting_nudge", True))
         self._entry(t, "waiting_time", "Nudge time (weekdays)", s.get("waiting_time", "16:00"))
+        self._check(t, "promise_tracker", "Track promises I make in emails, and chase quiet quotes",
+                    s.get("promise_tracker", True))
+        self._slider(t, "quote_followup_days", "Chase a quote after", 3, 21, s.get("quote_followup_days", 7), 1,
+                     "3 days", "3 weeks")
+        self._check(t, "clash_alerts", "Morning diary check for clashes", s.get("clash_alerts", True))
+        self._check(t, "learn_memory", "Offer to remember things she notices about me", s.get("learn_memory", True))
         self._check(t, "wrap_up", "End-of-day wrap-up", s.get("wrap_up", False))
         self._entry(t, "wrap_time", "Wrap-up time (weekdays)", s.get("wrap_time", "17:30"))
         self._label(t, "Quiet hours", "No alerts between these times. Reminders you set still come through.")

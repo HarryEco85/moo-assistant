@@ -167,6 +167,31 @@ class MooWindow:
         self.chat.configure(state="disabled")
         self.chat.see("end")
 
+    def add_choice(self, question, options):
+        self.later(self._add_choice, question, options)
+
+    def _add_choice(self, question, options):
+        self.chat.configure(state="normal")
+        self.chat.insert("end", question + "\n", "sys")
+        buttons = []
+        for i, (label, cb) in enumerate(options):
+            b = tk.Label(self.chat, text=label, font=(FONT, 9, "bold" if i == 0 else "normal"), padx=12, pady=4,
+                         bg=palette(self.app.settings)["idle"][0] if i == 0 else SURFACE_HI,
+                         fg=BG if i == 0 else TEXT, cursor="hand2")
+            buttons.append(b)
+
+            def click(_e, cb=cb):
+                for x in buttons:
+                    x.configure(state="disabled", cursor="")
+                    x.unbind("<Button-1>")
+                cb()
+            b.bind("<Button-1>", click)
+            self.chat.insert("end", " ", "sys")
+            self.chat.window_create("end", window=b)
+        self.chat.insert("end", "\n\n", "gap")
+        self.chat.configure(state="disabled")
+        self.chat.see("end")
+
     def add_card(self, pil_image):
         self.later(self._add_card, pil_image)
 
