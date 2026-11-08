@@ -42,12 +42,14 @@ class SettingsWindow:
         self.tab_persona = self._tab(nb, "Personality")
         self.tab_listen = self._tab(nb, "Listening")
         self.tab_accounts = self._tab(nb, "Accounts")
+        self.tab_phone = self._tab(nb, "Phone")
         self.tab_system = self._tab(nb, "System")
         self._build_voice()
         self._build_look()
         self._build_persona()
         self._build_listening()
         self._build_accounts()
+        self._build_phone()
         self._build_system()
 
         win.bind_all("<MouseWheel>", self._wheel, add="+")
@@ -324,6 +326,36 @@ class SettingsWindow:
                           else "Free tier unlocks more British voices. See the README for setup."))
         self._entry(t, "azure_region", "Azure region", s.get("azure_region", "uksouth"))
 
+    def _build_phone(self):
+        t, s, phone = self.tab_phone, self.s, self.app.phone
+        tk.Label(t, text="Message or voice-note her from your phone with Telegram. Works anywhere, as long as "
+                         "this PC is on and she's open.", bg=SURFACE, fg=MUTED, font=(FONT, 9), justify="left",
+                 wraplength=460, anchor="w").pack(fill="x", pady=(10, 0))
+        self._check(t, "phone_enabled", "Turn on the phone link", s.get("phone_enabled", False))
+        self._entry(t, "telegram_token", "Telegram bot token", "", show="•",
+                    note=("Saved. Paste a new one to replace it." if get_secret("telegram_token")
+                          else "From @BotFather in Telegram (see README: 2 minutes)."))
+        self._label(t, "Status")
+        paired = phone.paired_id()
+        status = phone.status if phone.status != "off" else "off (tick the box, add the token, Save)"
+        tk.Label(t, text=status + (" · paired with your phone" if paired else ""), bg=SURFACE, fg=TEXT,
+                 font=(FONT, 10), anchor="w").pack(fill="x")
+        if not paired:
+            self._label(t, "Pairing code", "After saving, open your bot in Telegram and send it this code. "
+                                           "Only the phone that sends it can use her.")
+            tk.Label(t, text=phone.pairing_code(), bg=SURFACE_HI, fg=TEXT, font=(FONT, 20, "bold"), padx=16,
+                     pady=6).pack(anchor="w")
+        self._check(t, "phone_voice_replies", "Reply to voice notes with a voice note", s.get("phone_voice_replies", True))
+        self._check(t, "phone_reminders", "Send reminders to my phone", s.get("phone_reminders", True))
+        self._check(t, "phone_briefing", "Send the morning briefing to my phone", s.get("phone_briefing", True))
+        if paired:
+            row = tk.Frame(t, bg=SURFACE)
+            row.pack(fill="x", pady=(12, 0))
+            self._button(row, "Send a test message", lambda: threading.Thread(
+                target=phone.notify, args=("Test from your PC. All working.",), daemon=True).start()).pack(side="left")
+            self._button(row, "Unpair phone", lambda: (phone.unpair(), self.win.destroy(),
+                                                       self.ui.add_message("sys", "Phone unpaired."))).pack(side="left", padx=8)
+
     def _build_system(self):
         t, s = self.tab_system, self.s
         self._check(t, "autostart", "Start Moo when Windows starts", self.app.autostart_enabled())
@@ -361,7 +393,7 @@ class SettingsWindow:
         threading.Thread(target=run, daemon=True).start()
 
     def _store_secrets(self):
-        for key in ("gmail_app_password", "gcal_ics_url"):
+        for key in ("gmail_app_password", "gcal_ics_url", "telegram_token"):
             v = self.vars[key].get().strip()
             if v:
                 set_secret(key, "" if v.lower() == "remove" else v)
@@ -396,7 +428,7 @@ class SettingsWindow:
         old_whisper, old_hotkey = s.get("whisper_model"), s.get("hotkey")
 
         for k, w in self.vars.items():
-            if k in ("api_key", "azure_key", "autostart", "gmail_app_password", "gcal_ics_url"):
+            if k in ("api_key", "azure_key", "autostart", "gmail_app_password", "gcal_ics_url", "telegram_token"):
                 continue
             if isinstance(w, tuple):  # combo
                 var, choices = w

@@ -33,6 +33,8 @@ class MooApp:
         self.mouth = None
         self.ears = None
         self.brain = None
+        from .phone import Phone
+        self.phone = Phone(self)
 
     # ---------- startup ----------
     def start(self):
@@ -45,6 +47,7 @@ class MooApp:
         self._register_hotkey()
         self._footer()
         self.pending_update = None
+        self.phone.start()
         if self.settings.get("auto_update", True):
             threading.Thread(target=self._check_updates, args=(True,), daemon=True, name="update-check").start()
         self.ui.run()
@@ -149,6 +152,7 @@ class MooApp:
             self._register_hotkey()
         if whisper_changed and self.ears:
             self.ears.reload_whisper()
+        self.phone.restart()
         self._update_hint()
         self._footer()
         self.ui.add_message("sys", "Settings saved.")
@@ -292,7 +296,7 @@ class MooApp:
         if OUTLOOK_SIGNIN.search(text):
             self.ui.set_state("thinking", "Opening Microsoft sign-in")
             self.say(self.brain.connect_outlook())
-            return
+            return None
         self.ui.set_state("thinking")
         t0 = time.time()
         timing = {}
@@ -332,6 +336,7 @@ class MooApp:
             self._heard = None
         self.last_timing = timing
         self._footer()
+        return reply
 
     def _footer(self):
         try:
@@ -353,7 +358,42 @@ class MooApp:
     def _reminder_due(self, text):
         notify("Moo reminder", text)
         self.ui.add_message("Moo", f"Reminder: {text}")
+        if self.settings.get("phone_reminders", True):
+            threading.Thread(target=self.phone.notify, args=(f"Reminder: {text}",), daemon=True).start()
         threading.Thread(target=lambda: self.say(f"Just a reminder, {text}", show=False), daemon=True).start()
+
+    def _briefing(self):
+        with self.busy:
+            self.ui.add_message("You", "Give me my morning briefing.")
+            reply = self._answer("Give me my morning briefing.")
+        if reply and self.settings.get("phone_briefing", True):
+            self.phone.notify("Morning briefing\n\n" + reply)
+
+    def ask_from_phone(self, text, heard=False):
+        """A message from Telegram: answer in text (no speaking on the PC)."""
+        drafts = []
+        if not self.busy.acquire(timeout=90):
+            return "I'm tied up with something on the PC. Try again in a moment.", drafts
+        old_show = self.brain.show_draft
+        try:
+            self.brain.show_draft = lambda body, label: (drafts.append((label, body)), old_show(body, label))
+            self.ui.add_message("You", f"(phone) {text}")
+            self.ui.set_state("thinking", "Message from your phone")
+            who = user_name(self.settings)
+            note = (f"[Sent from {who}'s phone{' as a voice note' if heard else ''}. {who} is away from the PC: "
+                    "reply in text for a phone screen, don't open files on the PC, and keep it brief.] ")
+            try:
+                reply = self.brain.ask(note + text)
+            except Exception as e:
+                log.exception("Phone request failed")
+                reply = f"Sorry, something went wrong: {str(e)[:160]}"
+            self.ui.add_message("Moo", reply)
+            return reply, drafts
+        finally:
+            self.brain.show_draft = old_show
+            self.ui.set_state("idle")
+            self.busy.release()
+            self._footer()
 
     def _briefing_loop(self):
         while True:
@@ -368,7 +408,7 @@ class MooApp:
                         write_json(BRIEF_FILE, {"date": now.strftime("%Y-%m-%d")})
                         while self.mouth is None:
                             time.sleep(1)
-                        self.text_request("Give me my morning briefing.")
+                        threading.Thread(target=self._briefing, daemon=True, name="briefing-run").start()
             except Exception:
                 log.exception("Briefing check failed")
             time.sleep(30)
@@ -376,6 +416,7 @@ class MooApp:
     def shutdown(self):
         try:
             self.reminders.stop()
+            self.phone.stop()
             if self.mouth:
                 self.mouth.stop()
             if self.ears and self.ears.stream:

@@ -83,6 +83,13 @@ DEFAULTS = {
     "briefing_time": "08:00",
     # Folders Moo searches if Windows Search isn't available; empty = Documents, Desktop, Downloads, OneDrive
     "search_folders": [],
+    # Phone (Telegram); bot token kept in Credential Manager
+    "phone_enabled": False,
+    "telegram_user_id": 0,
+    "telegram_pair_code": "",
+    "phone_voice_replies": True,  # voice note in, voice note back
+    "phone_reminders": True,
+    "phone_briefing": True,
     # Updates
     "auto_update": True,
     "update_repo": "HarryEco85/moo-assistant",

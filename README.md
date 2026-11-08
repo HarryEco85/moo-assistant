@@ -74,6 +74,18 @@ If the test fails, open Gmail → ⚙ → **See all settings** → **Forwarding 
 
 Moo then checks Outlook and Gmail together ("any important emails?"), or one of them if you say so ("anything in my Gmail?"). Replies are drafted in whichever account the email came from.
 
+## Moo on your phone (Telegram, 5 minutes)
+
+Message her or send voice notes from anywhere. She replies in text, plus a voice note if you spoke to her, and can push your reminders and morning briefing to your phone. Your PC needs to be on with Moo open (set Windows to never sleep when plugged in: Settings → System → Power).
+
+1. Install **Telegram** on your phone and sign up.
+2. In Telegram, search for **@BotFather** (blue tick), tap **Start**, send `/newbot`, and follow the prompts: a name (e.g. `Moo`) and a username ending in `bot` (e.g. `harrys_moo_bot`).
+3. BotFather replies with a **token** (looks like `123456789:AAH...`). Copy it.
+4. In Moo: ⚙ → **Phone** → tick **Turn on the phone link**, paste the token, click **Save**.
+5. Reopen ⚙ → **Phone** to see your 6-digit **pairing code**. In Telegram, open your new bot (tap the link BotFather gave you), tap **Start**, and send the code.
+
+Once she replies "Paired", only your Telegram account can use her; anyone else who finds the bot is ignored.
+
 ## Talking to Moo
 
 Three ways: say the wake word, press **Ctrl+Alt+M** anywhere in Windows, or click the 🎙 button. Talk naturally; she stops listening when you pause. Speak over her (wake word or hotkey) to interrupt, or say "stop".
