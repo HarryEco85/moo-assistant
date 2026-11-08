@@ -86,9 +86,9 @@ class Phone:
         save_settings(self.s)
 
     # ---------- Telegram calls ----------
-    def _call(self, method, timeout=30, **params):
+    def _call(self, method, http_timeout=30, **params):
         files = params.pop("files", None)
-        r = requests.post(f"{API}/bot{self.token()}/{method}", data=params, files=files, timeout=timeout)
+        r = requests.post(f"{API}/bot{self.token()}/{method}", data=params, files=files, timeout=http_timeout)
         r.raise_for_status()
         return r.json().get("result")
 
@@ -113,7 +113,7 @@ class Phone:
                 rate = r
         if parts:
             data = encode_voice(np.concatenate(parts), rate)
-            self._call("sendVoice", timeout=60, chat_id=chat_id or self.paired_id(),
+            self._call("sendVoice", http_timeout=60, chat_id=chat_id or self.paired_id(),
                        files={"voice": ("moo.ogg", data, "audio/ogg")})
 
     def notify(self, text):
@@ -126,13 +126,13 @@ class Phone:
 
     # ---------- loop ----------
     def start(self):
-        if self._thread and self._thread.is_alive():
+        if self._thread and self._thread.is_alive() and not self._stop.is_set():
             return
         if not (self.s.get("phone_enabled") and self.token()):
             self.status = "off"
             return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="phone")
+        self._stop = threading.Event()  # fresh switch for this run; an old loop keeps its own (set) one
+        self._thread = threading.Thread(target=self._loop, args=(self._stop,), daemon=True, name="phone")
         self._thread.start()
 
     def stop(self):
@@ -145,7 +145,7 @@ class Phone:
         self._thread = None
         self.start()
 
-    def _loop(self):
+    def _loop(self, stop):
         offset = None
         try:
             me = self._call("getMe")
@@ -155,20 +155,28 @@ class Phone:
             self.status = "token not working"
             log.warning("Telegram token check failed: %s", e)
             return
-        while not self._stop.is_set():
+        while not stop.is_set():
             try:
                 params = {"timeout": 50, "allowed_updates": '["message"]'}
                 if offset:
                     params["offset"] = offset
-                updates = self._call("getUpdates", timeout=60, **params) or []
+                updates = self._call("getUpdates", http_timeout=65, **params) or []
                 for u in updates:
                     offset = u["update_id"] + 1
                     msg = u.get("message")
-                    if msg:
-                        self._handle(msg)
+                    if msg and not stop.is_set():
+                        try:
+                            self._handle(msg)
+                        except Exception as e:
+                            log.exception("Phone message failed")
+                            try:
+                                self.send_text(f"Sorry, something went wrong: {str(e)[:150]}", msg["chat"]["id"])
+                            except Exception:
+                                pass
             except Exception as e:
                 log.warning("Phone link hiccup: %s", e)
-                self._stop.wait(5)
+                self.status = f"reconnecting ({str(e)[:60]})"
+                stop.wait(5)
 
     def _handle(self, msg):
         chat_id, user_id = msg["chat"]["id"], msg["from"]["id"]

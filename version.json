@@ -1,4 +1,4 @@
 {
-  "version": "1.8.1",
-  "notes": "She now knows about the phone link and can check what's connected, and she understands you faster on PCs without a graphics card."
+  "version": "1.8.2",
+  "notes": "Fixes the phone link: she now receives and answers Telegram messages."
 }
