@@ -355,6 +355,29 @@ class SettingsWindow:
         self._button(row, "Test Outlook", lambda: (self.save(close=False),
                                                       self.app.text_request("sign in to outlook"))).pack(side="left")
         tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
+        vh3 = self.app.brain.vh3
+        self._entry(t, "vh3_url", "VH3 connection address", s.get("vh3_url", ""),
+                    note="claude.ai > Settings > Connectors > Vh3: copy its URL. Status: " + vh3.status())
+        self._check(t, "vh3_allow_actions", "Let her ask Connie too (she'll only ask questions, never send)",
+                    s.get("vh3_allow_actions", False))
+        vrow = tk.Frame(t, bg=SURFACE)
+        vrow.pack(fill="x", pady=(8, 0))
+        self.vh3_result = tk.Label(vrow, text="", bg=SURFACE, fg=MUTED, font=(FONT, 9))
+
+        def connect_vh3():
+            self.s["vh3_url"] = self.vars["vh3_url"].get().strip()
+            save_settings(self.s)
+            self.vh3_result.configure(text="Opening VH3 sign-in in your browser…", fg=MUTED)
+
+            def run():
+                msg = vh3.connect()
+                self.ui.later(lambda: self.vh3_result.winfo_exists() and self.vh3_result.configure(
+                    text=msg[:80], fg=TEXT if msg.startswith("Connected") else "#FF8A80"))
+                self.ui.add_message("sys", msg)
+            threading.Thread(target=run, daemon=True).start()
+        self._button(vrow, "Connect VH3", connect_vh3).pack(side="left")
+        self.vh3_result.pack(side="left", padx=10)
+        tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
         self._entry(t, "gmail_address", "Gmail address", s.get("gmail_address", ""))
         self._entry(t, "gmail_app_password", "Gmail app password", "", show="•",
                     note=("Saved. Paste a new one to replace it, or type 'remove'." if get_secret("gmail_app_password")

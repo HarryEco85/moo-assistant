@@ -476,6 +476,7 @@ class MooApp:
         gm = s.get("gmail_address") and get_secret("gmail_app_password")
         lines.append(f"Gmail: {'set up for ' + s['gmail_address'] if gm else 'not set up'}")
         lines.append(f"Google Calendar: {'set up' if get_secret('gcal_ics_url') else 'not set up'}")
+        lines.append(f"VH3 (BigChange jobs, quotes, invoices, Connie): {self.brain.vh3.status()}")
         ph = self.phone
         if not s.get("phone_enabled"):
             lines.append("Phone link (Telegram): switched off")

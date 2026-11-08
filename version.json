@@ -1,4 +1,4 @@
 {
-  "version": "1.12.0",
-  "notes": "Tracks promises you make in emails and reminds you when they're due, chases quotes that go quiet, spots diary clashes, and offers to remember things she learns about you."
+  "version": "1.13.0",
+  "notes": "VH3 connection: ask Moo about BigChange jobs, SLA warnings, quotes and invoices (and Connie, if you allow it)."
 }

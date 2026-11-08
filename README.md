@@ -74,6 +74,14 @@ If the test fails, open Gmail → ⚙ → **See all settings** → **Forwarding 
 
 Moo then checks Outlook and Gmail together ("any important emails?"), or one of them if you say so ("anything in my Gmail?"). Replies are drafted in whichever account the email came from.
 
+## Connect VH3 (BigChange jobs, quotes, invoices, Connie)
+
+1. Find VH3's connection address: on claude.ai go to **Settings → Connectors**, click **Vh3**, and copy its URL.
+2. In Moo: ⚙ → **Accounts** → paste it into **VH3 connection address** → click **Connect VH3**.
+3. Your browser opens VH3's sign-in. Log in and approve Moo. She'll say how many VH3 tools she has.
+
+Then ask things like "how many jobs are running out of SLA today?", "what's been invoiced this week?" or "who could take a blocked drain in Solihull tomorrow?" She uses VH3's data read-only. Tick **Let her ask Connie too** if you want her to put harder questions to Connie; she's told only to ask, never to send or book anything through Connie.
+
 ## Moo on your phone (Telegram, 5 minutes)
 
 Message her or send voice notes from anywhere. She replies in text, plus a voice note if you spoke to her, and can push your reminders and morning briefing to your phone. Your PC needs to be on with Moo open (set Windows to never sleep when plugged in: Settings → System → Power).

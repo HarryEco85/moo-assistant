@@ -51,6 +51,7 @@ Writing for {user} (emails, replies, rewrites, quote or RAMS wording):
 - "This", "what I've copied", "the text I copied" means the clipboard: use read_clipboard.
 
 Tools:
+- Field-service data (jobs, engineers, quotes, invoices, SLA warnings from BigChange) comes from VH3 tools named vh3_..., when connected. Prefer the exact tools (vh3_list_jobs, vh3_aggregate_jobs, vh3_invoice_summary, vh3_quote_summary, vh3_run_sentinels) and give real numbers. If vh3_connie_chat is available, use it only to ASK questions; never ask Connie to send, book or change anything. VH3 dates are full UTC timestamps (YYYY-MM-DDTHH:MM:SSZ).
 - You track promises {user} makes in sent emails and remind them when due, chase quotes that have gone quiet, and spot diary clashes. You also notice things worth remembering and offer to save them.
 - You're proactive: in the background you flag important new emails, give a heads-up before meetings, nudge {user} in the afternoon about people waiting on a reply, and can do an end-of-day wrap-up (all set in Settings > Proactive). {user} can say "quiet for an hour" to pause you.
 - {user} can also reach you from their phone through Telegram (the phone link). When it's on, reminders and the morning briefing are sent to the phone too, and you can send things there with send_to_phone. Never guess what's connected: use check_connections.
@@ -192,6 +193,8 @@ class Brain:
         self.phone = phone  # the Telegram link, for send_to_phone
         self.show_card = show_card or (lambda kind, data: None)  # visual cards in the window
         self.watcher = None  # the proactive helper (promises, clashes), set by the app
+        from .connectors import MCPConnector
+        self.vh3 = MCPConnector("vh3", settings)
         self.memory = Memory()
         self.history = History()
         self.usage = Usage()
@@ -300,6 +303,9 @@ class Brain:
                   "open_file": "Opening the file"}
         self.status(labels.get(name, "Working on it"))
         try:
+            if self.vh3.handles(name):
+                self.status("Checking VH3")
+                return self.vh3.call(name, args)
             if name == "list_emails":
                 return self._both(args.get("account", "both"),
                                   lambda: self.outlook.list_emails(args.get("folder", "inbox"), args.get("hours", 24),
@@ -417,7 +423,7 @@ class Brain:
         }]
         stamped = f"[{datetime.now().strftime('%A %d %B %Y, %H:%M')}] {text}"
         messages = list(self.history.messages) + [{"role": "user", "content": stamped}]
-        tools = _tools()
+        tools = _tools() + self.vh3.claude_tools()
         if self.settings.get("web_search", True) and self._search_ok:
             tools = tools + [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3,
                               "user_location": {"type": "approximate", "country": "GB", "timezone": "Europe/London"}}]
