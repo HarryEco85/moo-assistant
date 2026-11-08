@@ -195,6 +195,8 @@ class Outlook:
             escape(text).replace("\n", "<br>") + "</div>"
 
     def create_draft(self, to="", subject="", body="", cc="", reply_to_message_id="") -> str:
+        if not self.configured:
+            raise OutlookNotConfigured()
         if self.scopes is READ_SCOPES:
             raise RuntimeError("Saving drafts is switched off in settings.")
         if reply_to_message_id:

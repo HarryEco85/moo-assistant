@@ -13,6 +13,7 @@ from datetime import datetime
 from . import extras, files
 from .config import get_api_key, user_name
 from .memory import History, Memory, Usage
+from .gmail import Gmail, GmailNotConfigured, google_calendar
 from .outlook import Outlook, OutlookNotConfigured
 
 log = logging.getLogger("moo")
@@ -41,10 +42,11 @@ Writing for {user} (emails, replies, rewrites, quote or RAMS wording):
 - For emails, the first time in a conversation, if Outlook works, glance at a few of their recent sent emails (list_emails folder sent, hours 168, limit 5) to match their tone and length.
 - Sign emails off with:
 {signoff}
-- NEVER read written pieces aloud. Put the finished text on the clipboard with copy_to_clipboard, and if it's an email and drafts are allowed, also save it with create_email_draft (as a reply when it answers an email you found). Then say one short line, e.g. "Done, it's in your Drafts and on your clipboard."
+- NEVER read written pieces aloud. Put the finished text on the clipboard with copy_to_clipboard, and if it's an email, also save it with create_email_draft (as a reply when it answers an email you found). Then say one short line, e.g. "Done, it's in your Drafts and on your clipboard."
 - "This", "what I've copied", "the text I copied" means the clipboard: use read_clipboard.
 
 Tools:
+- Email and calendar cover both Outlook (work) and Gmail (personal) unless {user} names one. Say which account something is in when it matters.
 - For "summarise my day" / "morning briefing": check today's calendar, then unread and recent inbox emails (last 18 hours), then today's weather for {home}, then due reminders. Give a short spoken rundown: meetings first (with drive time from {home} for any meeting that has an address or postcode), then emails that look like they need {user}'s attention (customers, deadlines, complaints), then the weather in one line (flag rain timing and strong wind, it matters for outdoor work), then reminders. Skip anything that isn't set up without fuss.
 - Weather and travel: default location is {home}. Travel times have no live traffic, so say "about" and mention rush hour if relevant.
 - Web search: use it for anything current or outside {user}'s systems (prices, suppliers, news, road closures, regulations, opening hours). Keep the answer short, name the source in passing (e.g. "according to the HSE site"), never read URLs.
@@ -93,17 +95,20 @@ LENGTHS = {
 
 def _tools():
     return [
-        {"name": "list_emails", "description": "List recent emails from the inbox or sent items, newest first.",
+        {"name": "list_emails", "description": "List recent emails from the inbox or sent items, newest first, from Outlook (work) and/or Gmail.",
          "input_schema": {"type": "object", "properties": {
+             "account": {"type": "string", "enum": ["both", "outlook", "gmail"], "description": "Default both"},
              "folder": {"type": "string", "enum": ["inbox", "sent"]},
              "hours": {"type": "integer", "description": "How far back to look, in hours (default 24)."},
              "unread_only": {"type": "boolean"},
              "limit": {"type": "integer", "description": "Max emails, up to 50."}}}},
-        {"name": "search_emails", "description": "Search the whole mailbox (sent and received) by keywords, e.g. a customer, site, postcode or job reference.",
-         "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+        {"name": "search_emails", "description": "Search whole mailboxes (sent and received) by keywords, e.g. a customer, site, postcode or job reference. Gmail understands Gmail search syntax.",
+         "input_schema": {"type": "object", "properties": {"query": {"type": "string"},
+             "account": {"type": "string", "enum": ["both", "outlook", "gmail"], "description": "Default both"}},
+             "required": ["query"]}},
         {"name": "read_email", "description": "Read the full text of one email by its id (from list_emails or search_emails).",
          "input_schema": {"type": "object", "properties": {"message_id": {"type": "string"}}, "required": ["message_id"]}},
-        {"name": "get_calendar", "description": "Get calendar events starting from a date.",
+        {"name": "get_calendar", "description": "Get calendar events starting from a date, from Outlook and Google Calendar.",
          "input_schema": {"type": "object", "properties": {
              "start_date": {"type": "string", "description": "YYYY-MM-DD"},
              "days": {"type": "integer", "description": "Number of days, default 1, max 14."}}, "required": ["start_date"]}},
@@ -126,8 +131,9 @@ def _tools():
          "input_schema": {"type": "object", "properties": {}}},
         {"name": "copy_to_clipboard", "description": "Put finished text on the clipboard so the user can paste it.",
          "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
-        {"name": "create_email_draft", "description": "Save an email in the user's Outlook Drafts folder (NOT sent). For a reply, pass reply_to_message_id from list_emails/search_emails and just the body.",
+        {"name": "create_email_draft", "description": "Save an email in the Drafts folder (NOT sent) of Outlook or Gmail. For a reply, pass reply_to_message_id from list_emails/search_emails and just the body; the reply goes to the same account automatically.",
          "input_schema": {"type": "object", "properties": {
+             "account": {"type": "string", "enum": ["outlook", "gmail"], "description": "Which account to draft in, if not a reply. Work emails: outlook."},
              "to": {"type": "string", "description": "Email address(es), comma separated"},
              "subject": {"type": "string"}, "body": {"type": "string", "description": "Plain text, including sign-off"},
              "cc": {"type": "string"}, "reply_to_message_id": {"type": "string"}}, "required": ["body"]}},
@@ -156,7 +162,28 @@ class Brain:
         self.history = History()
         self.usage = Usage()
         self.outlook = Outlook(settings)
+        self.gmail = Gmail(settings)
         self._client = None
+
+    def _both(self, account, outlook_fn, gmail_fn, labels=("Outlook (work)", "Gmail")):
+        """Run against Outlook, Gmail or both, skipping whichever isn't set up."""
+        parts, skipped = [], []
+        for key, fn, label in (("outlook", outlook_fn, labels[0]), ("gmail", gmail_fn, labels[1])):
+            if account not in ("both", key):
+                continue
+            try:
+                parts.append(f"=== {label} ===\n{fn()}")
+            except (OutlookNotConfigured, GmailNotConfigured):
+                skipped.append(label)
+            except Exception as e:
+                log.exception("%s failed", label)
+                parts.append(f"=== {label} ===\nError: {e}")
+        if skipped:
+            parts.append(f"(Not connected: {', '.join(skipped)}. Mention only if relevant.)")
+        if not any(p.startswith("===") for p in parts):
+            return ("No email or calendar account is connected yet. Outlook needs IDs from the IT company; Gmail needs "
+                    "an app password. Both go in Settings > Accounts. Tell the user briefly.")
+        return "\n\n".join(parts)
 
     def _stream(self, model, system, tools, messages, splitter):
         with self.client().messages.stream(model=model, max_tokens=int(self.settings.get("max_tokens", 1024)),
@@ -183,6 +210,7 @@ class Brain:
         """Apply changed settings without restarting."""
         self._client = None
         self.outlook = Outlook(self.settings)
+        self.gmail = Gmail(self.settings)
 
     def client(self):
         if self._client is None:
@@ -202,14 +230,22 @@ class Brain:
         self.status(labels.get(name, "Working on it"))
         try:
             if name == "list_emails":
-                return self.outlook.list_emails(args.get("folder", "inbox"), args.get("hours", 24),
-                                                args.get("unread_only", False), args.get("limit", 25))
+                return self._both(args.get("account", "both"),
+                                  lambda: self.outlook.list_emails(args.get("folder", "inbox"), args.get("hours", 24),
+                                                                   args.get("unread_only", False), args.get("limit", 25)),
+                                  lambda: self.gmail.list_emails(args.get("folder", "inbox"), args.get("hours", 24),
+                                                                 args.get("unread_only", False), args.get("limit", 25)))
             if name == "search_emails":
-                return self.outlook.search_emails(args["query"])
+                return self._both(args.get("account", "both"), lambda: self.outlook.search_emails(args["query"]),
+                                  lambda: self.gmail.search_emails(args["query"]))
             if name == "read_email":
-                return self.outlook.read_email(args["message_id"])
+                mid = args["message_id"]
+                return self.gmail.read_email(mid) if mid.startswith("gm:") else self.outlook.read_email(mid)
             if name == "get_calendar":
-                return self.outlook.calendar(args.get("start_date", ""), args.get("days", 1))
+                return self._both("both", lambda: self.outlook.calendar(args.get("start_date", ""), args.get("days", 1)),
+                                  lambda: google_calendar(args.get("start_date", ""), args.get("days", 1),
+                                                          self.settings.get("timezone", "Europe/London")),
+                                  labels=("Outlook calendar", "Google Calendar"))
             if name == "search_files":
                 return files.search_files(args["query"], self.settings.get("search_folders") or None)
             if name == "read_file":
@@ -233,9 +269,15 @@ class Brain:
                 return out
             if name == "create_email_draft":
                 self.status("Saving the draft")
-                out = self.outlook.create_draft(args.get("to", ""), args.get("subject", ""), args["body"],
-                                                args.get("cc", ""), args.get("reply_to_message_id", ""))
-                self.show_draft(args["body"], "Saved in Outlook Drafts" + (f" · {args['subject']}" if args.get("subject") else ""))
+                reply_id = args.get("reply_to_message_id", "")
+                acct = "gmail" if reply_id.startswith("gm:") else ("outlook" if reply_id else args.get("account", ""))
+                if not acct:
+                    acct = "outlook" if self.outlook.configured else "gmail"
+                box = self.gmail if acct == "gmail" else self.outlook
+                out = box.create_draft(args.get("to", ""), args.get("subject", ""), args["body"],
+                                       args.get("cc", ""), reply_id)
+                where = "Gmail" if acct == "gmail" else "Outlook"
+                self.show_draft(args["body"], f"Saved in {where} Drafts" + (f" · {args['subject']}" if args.get("subject") else ""))
                 return out
             if name == "get_weather":
                 self.status("Checking the weather")
@@ -248,6 +290,9 @@ class Brain:
             if name == "forget":
                 return self.memory.forget(args["text"])
             return f"Unknown tool {name}."
+        except GmailNotConfigured:
+            return ("Gmail isn't connected yet: add the Gmail address and app password in Settings > Accounts. "
+                    "Tell the user this briefly.")
         except OutlookNotConfigured:
             return ("Outlook isn't connected yet: Moo needs the app registration details from the IT company "
                     "(see Settings). Tell the user this briefly.")
@@ -334,6 +379,9 @@ class Brain:
         try:
             self.outlook.token(interactive=True)
             return "Outlook is connected."
+        except GmailNotConfigured:
+            return ("Gmail isn't connected yet: add the Gmail address and app password in Settings > Accounts. "
+                    "Tell the user this briefly.")
         except OutlookNotConfigured:
             return "Outlook needs the app details from your IT company first. They go in Settings."
         except Exception as e:

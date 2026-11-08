@@ -34,6 +34,7 @@ DEFAULTS = {
     # Extras
     "web_search": True,  # Claude's web search, about 1p per search
     "outlook_drafts": True,  # let Moo save email drafts (needs Mail.ReadWrite from IT)
+    "gmail_address": "",  # Gmail via app password (password kept in Credential Manager)
     # Look
     "theme": "Ocean",
     "text_size": "Medium",
@@ -183,5 +184,25 @@ def set_azure_key(key: str):
     else:
         try:
             keyring.delete_password(KEYRING_SERVICE, AZURE_USER)
+        except Exception:
+            pass
+
+
+def get_secret(name: str) -> str:
+    """Other private values (Gmail app password, calendar link) in Credential Manager."""
+    try:
+        import keyring
+        return keyring.get_password(KEYRING_SERVICE, name) or ""
+    except Exception:
+        return ""
+
+
+def set_secret(name: str, value: str):
+    import keyring
+    if value.strip():
+        keyring.set_password(KEYRING_SERVICE, name, value.strip())
+    else:
+        try:
+            keyring.delete_password(KEYRING_SERVICE, name)
         except Exception:
             pass

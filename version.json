@@ -1,4 +1,4 @@
 {
-  "version": "1.5.0",
-  "notes": "Auto-update, clipboard tricks, web search, weather and drive times, and email drafting."
+  "version": "1.6.0",
+  "notes": "Gmail and Google Calendar: she now reads both your Outlook and Gmail, and drafts replies in the right account."
 }

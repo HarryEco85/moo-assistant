@@ -50,6 +50,24 @@ Moo works without Outlook straight away (files, reminders, chat). For email and 
 
 When they reply, open Moo → ⚙ Settings → paste both IDs → Save → **Connect Outlook now**. A normal Microsoft sign-in opens in your browser. You'll rarely need to sign in again.
 
+## Connect Gmail and Google Calendar (5 minutes, no IT needed)
+
+Moo reads your Gmail and can save drafts there. She never sends, deletes, or marks anything as read.
+
+**Gmail**
+1. Make sure **2-Step Verification** is on: myaccount.google.com/security.
+2. Go to **myaccount.google.com/apppasswords**, type `Moo` as the name, click **Create**, and copy the 16-letter password.
+3. In Moo: ⚙ → **Accounts** → enter your **Gmail address** and paste the **app password** → click **Test Gmail** → **Save**.
+
+If the test fails, open Gmail → ⚙ → **See all settings** → **Forwarding and POP/IMAP**, and if there's an IMAP option, make sure it's **enabled**.
+
+**Google Calendar (optional)**
+1. Open **calendar.google.com** → ⚙ → **Settings**.
+2. On the left, under **Settings for my calendars**, click your calendar, then scroll to **Integrate calendar**.
+3. Copy **Secret address in iCal format** and paste it into Moo: ⚙ → **Accounts** → **Google Calendar secret address** → **Save**.
+
+Moo then checks Outlook and Gmail together ("any important emails?"), or one of them if you say so ("anything in my Gmail?"). Replies are drafted in whichever account the email came from.
+
 ## Talking to Moo
 
 Three ways: say the wake word, press **Ctrl+Alt+M** anywhere in Windows, or click the 🎙 button. Talk naturally; she stops listening when you pause. Speak over her (wake word or hotkey) to interrupt, or say "stop".

@@ -4,7 +4,7 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .config import get_api_key, get_azure_key, save_settings, set_api_key, set_azure_key
+from .config import get_api_key, get_azure_key, get_secret, save_settings, set_api_key, set_azure_key, set_secret
 from .themes import BG, FAINT, FONT, MUTED, SURFACE, SURFACE_HI, TEXT, THEMES, accent
 
 TEXT_SIZES = ["Small", "Medium", "Large"]
@@ -298,6 +298,20 @@ class SettingsWindow:
         row.pack(fill="x", pady=(8, 0))
         self._button(row, "Connect Outlook", lambda: (self.save(close=False),
                                                       self.app.text_request("sign in to outlook"))).pack(side="left")
+        tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
+        self._entry(t, "gmail_address", "Gmail address", s.get("gmail_address", ""))
+        self._entry(t, "gmail_app_password", "Gmail app password", "", show="•",
+                    note=("Saved. Paste a new one to replace it, or type 'remove'." if get_secret("gmail_app_password")
+                          else "16 letters from myaccount.google.com/apppasswords (see README)."))
+        self._entry(t, "gcal_ics_url", "Google Calendar secret address (optional)", "", show="•",
+                    note=("Saved. Paste a new one to replace it, or type 'remove'." if get_secret("gcal_ics_url")
+                          else "Google Calendar > Settings > your calendar > 'Secret address in iCal format'."))
+        grow = tk.Frame(t, bg=SURFACE)
+        grow.pack(fill="x", pady=(8, 0))
+        self._button(grow, "Test Gmail", self._test_gmail).pack(side="left")
+        self.gmail_result = tk.Label(grow, text="", bg=SURFACE, fg=MUTED, font=(FONT, 9))
+        self.gmail_result.pack(side="left", padx=10)
+        tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
         self._entry(t, "azure_key", "Azure Speech key (optional)", "", show="•",
                     note=("Saved. Paste a new one to replace it, or type 'remove'." if get_azure_key()
                           else "Free tier unlocks more British voices. See the README for setup."))
@@ -324,6 +338,27 @@ class SettingsWindow:
         self._button(row, "Edit memories", self.app.edit_memories).pack(side="left", padx=8)
         self._button(row, "Clear conversation", self._clear).pack(side="left")
 
+    def _test_gmail(self):
+        self._store_secrets()
+        self.s["gmail_address"] = self.vars["gmail_address"].get().strip()
+        self.gmail_result.configure(text="Testing…", fg=MUTED)
+
+        def run():
+            from .gmail import Gmail
+            try:
+                msg, ok = Gmail(self.s).test(), True
+            except Exception as e:
+                msg, ok = (str(e) if str(e) else "Add the address and app password first."), False
+            self.ui.later(lambda: self.gmail_result.winfo_exists() and self.gmail_result.configure(
+                text=msg[:70], fg=TEXT if ok else "#FF8A80"))
+        threading.Thread(target=run, daemon=True).start()
+
+    def _store_secrets(self):
+        for key in ("gmail_app_password", "gcal_ics_url"):
+            v = self.vars[key].get().strip()
+            if v:
+                set_secret(key, "" if v.lower() == "remove" else v)
+
     def _clear(self):
         if messagebox.askyesno("Moo", "Clear the conversation history? Her memories stay.", parent=self.win):
             self.app.clear_conversation()
@@ -338,6 +373,7 @@ class SettingsWindow:
             return
         if key:
             set_api_key(key)
+        self._store_secrets()
         az = self.vars["azure_key"].get().strip()
         if az:
             set_azure_key("" if az.lower() == "remove" else az)
@@ -353,7 +389,7 @@ class SettingsWindow:
         old_whisper, old_hotkey = s.get("whisper_model"), s.get("hotkey")
 
         for k, w in self.vars.items():
-            if k in ("api_key", "azure_key", "autostart"):
+            if k in ("api_key", "azure_key", "autostart", "gmail_app_password", "gcal_ics_url"):
                 continue
             if isinstance(w, tuple):  # combo
                 var, choices = w
