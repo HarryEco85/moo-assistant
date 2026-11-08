@@ -9,6 +9,7 @@ Setup (see README): create a bot with @BotFather, paste its token into
 Settings > Phone, then send the pairing code to your bot.
 """
 import io
+import json
 import logging
 import random
 import threading
@@ -124,6 +125,42 @@ class Phone:
             except Exception as e:
                 log.warning("Couldn't send to phone: %s", e)
 
+    def send_approval(self, item):
+        """An approval request with Approve / Reject buttons."""
+        if not (self.s.get("phone_enabled") and self.paired_id() and self.token()):
+            return
+        text = f"Needs your OK: {item['title']}" + (f"\n{item['detail']}" if item.get("detail") else "")
+        markup = {"inline_keyboard": [[{"text": "✅ Approve", "callback_data": f"ap:{item['id']}"},
+                                       {"text": "✖ Reject", "callback_data": f"rj:{item['id']}"}]]}
+        try:
+            self._call("sendMessage", chat_id=self.paired_id(), text=text, reply_markup=json.dumps(markup))
+        except Exception as e:
+            log.warning("Couldn't send approval to phone: %s", e)
+
+    def _callback(self, cq):
+        """A tap on an Approve / Reject button."""
+        if cq.get("from", {}).get("id") != self.paired_id():
+            return
+        data = cq.get("data") or ""
+        kind, _, aid = data.partition(":")
+        app, ok = self.app, False
+        if kind == "ap":
+            ok = app.approve(aid, from_phone=True)
+            note = "✅ Approved, on it." if ok else "Already handled."
+        elif kind == "rj":
+            ok = app.reject(aid, from_phone=True)
+            note = "✖ Rejected." if ok else "Already handled."
+        else:
+            note = "?"
+        try:
+            self._call("answerCallbackQuery", callback_query_id=cq["id"], text=note[:60])
+            msg = cq.get("message") or {}
+            if msg:
+                self._call("editMessageText", chat_id=msg["chat"]["id"], message_id=msg["message_id"],
+                           text=f"{msg.get('text', '')}\n\n{note}")
+        except Exception as e:
+            log.warning("Callback reply failed: %s", e)
+
     # ---------- loop ----------
     def start(self):
         if self._thread and self._thread.is_alive() and not self._stop.is_set():
@@ -157,12 +194,18 @@ class Phone:
             return
         while not stop.is_set():
             try:
-                params = {"timeout": 50, "allowed_updates": '["message"]'}
+                params = {"timeout": 50, "allowed_updates": '["message","callback_query"]'}
                 if offset:
                     params["offset"] = offset
                 updates = self._call("getUpdates", http_timeout=65, **params) or []
                 for u in updates:
                     offset = u["update_id"] + 1
+                    if u.get("callback_query") and not stop.is_set():
+                        try:
+                            self._callback(u["callback_query"])
+                        except Exception:
+                            log.exception("Phone button failed")
+                        continue
                     msg = u.get("message")
                     if msg and not stop.is_set():
                         try:

@@ -23,7 +23,7 @@ INK, MUTED_C, FAINT_C = (232, 236, 243), (138, 147, 166), (88, 96, 114)
 WORKERS = [  # key, title, what it does, on/off setting, can run now, icon
     ("email", "Inbox watch", "Flags important new emails", "email_alerts", True, "mail"),
     ("meetings", "Meetings", "Warns before meetings, with drive time", "meeting_alerts", True, "calendar"),
-    ("promises", "Promise tracker", "Promises in sent mail, quiet quotes", "promise_tracker", True, "check"),
+    ("promises", "Promises", "Promises in sent mail, quiet quotes", "promise_tracker", True, "check"),
     ("clashes", "Diary check", "Double bookings and impossible drives", "clash_alerts", True, "clash"),
     ("vh3", "VH3 · BigChange", "Critical job and SLA issues", "vh3_alerts", True, "bolt"),
     ("waiting", "Waiting on you", "Who's owed a reply · 4pm nudge", "waiting_nudge", True, "hourglass"),
@@ -148,8 +148,8 @@ class OfficeWindow:
         self.win = tk.Toplevel(ui.root)
         self.win.title(f"{self.app.settings.get('assistant_name', 'Moo')}'s office")
         self.win.configure(bg=BG)
-        self.win.geometry("1120x740")
-        self.win.minsize(940, 640)
+        self.win.geometry("1200x820")
+        self.win.minsize(1100, 760)
         self.view = tk.Label(self.win, bg=BG, bd=0, padx=0, pady=0, highlightthickness=0)
         self.view.pack(fill="both", expand=True)
         self.view.bind("<Button-1>", self._on_click)
@@ -201,6 +201,10 @@ class OfficeWindow:
         elif kind == "master":
             s["proactive"] = not s.get("proactive", True)
             save_settings(s)
+        elif kind == "approve":
+            self.app.approve(key)
+        elif kind == "reject":
+            self.app.reject(key)
         self.sig = None
 
     # ---------- data ----------
@@ -243,17 +247,26 @@ class OfficeWindow:
         self.win.after(70, self._tick)
 
     def _frame(self):
-        W, H = max(self.view.winfo_width(), 940), max(self.view.winfo_height(), 640)
+        W, H = max(self.view.winfo_width(), 1100), max(self.view.winfo_height(), 760)
+        self.CW = int(max(256, min(304, (W - 64 - 96 - 440) / 2)))
         s, w = self.app.settings, self.app.watcher
         states = [self._state(k, st) for k, _, _, st, _, _ in WORKERS]
         snoozed = w.snoozed_until > time.time()
         sig = (W, H, tuple(states), self.hover, s.get("theme"), s.get("proactive", True), snoozed, w.quiet_now(),
                int(time.time() // 20), tuple(int(time.time() - w.stats.get(k, {}).get("alert_at", 0) < 90)
-                                             for k, *_ in WORKERS))
+                                             for k, *_ in WORKERS), self._extras_sig())
         if sig != self.sig or self.base is None:
             self.sig = sig
             self.base = self._render_static(W, H, states, snoozed)
         self.view.configure(image=self._compose(W, H, states))
+
+    def _extras_sig(self):
+        plan = getattr(self.app.brain, "plan", None) if self.app.brain else None
+        p = (plan["status"], plan.get("check", ""), tuple((x["status"], x["note"]) for x in plan["steps"])) if plan else None
+        pend = tuple((a["id"], a["status"]) for a in self.app.approvals.pending())
+        perf = self.app._perf_today() if hasattr(self.app, "_perf_today") else {}
+        return (pend, p, tuple(sorted((k, round(v, 1) if isinstance(v, float) else v) for k, v in perf.items())),
+                self.app.approvals.done_today(), getattr(self.ui, "state", ""))
 
     # ---------- static layer ----------
     def _layout(self, W, H):
@@ -264,8 +277,16 @@ class OfficeWindow:
             col, row = (0, i) if i < 4 else (1, i - 4)
             x = 32 if col == 0 else W - 32 - self.CW
             cards.append((x, top + row * (self.CH + gap), col))
-        core = (W / 2, H / 2 + 6, 190)  # centre and orb box size
+        core = (W / 2, 205, 190)  # orb centre and box size
         return cards, core
+
+    def _panels(self, W, H):
+        x0, x1 = 32 + self.CW + 48, W - 32 - self.CW - 48
+        top = 205 + 96
+        perf = (x0, H - 28 - 70, x1, H - 28)
+        avail = perf[1] - 12 - top
+        ah = int(avail * 0.53)
+        return {"approvals": (x0, top, x1, top + ah), "tasks": (x0, top + ah + 12, x1, perf[1] - 12), "perf": perf}
 
     def _wire(self, card, core):
         x, y, col = card
@@ -275,8 +296,8 @@ class OfficeWindow:
         ey = oy + max(-r * 0.8, min(r * 0.8, (sy - oy) * 0.32))
         dx = math.sqrt(r * r - (ey - oy) ** 2)
         ex = cx - dx if col == 0 else cx + dx
-        mid = (sx + ex) / 2
-        return (sx, sy), (mid, sy), (mid, ey), (ex, ey)
+        bend = sx + (30 if col == 0 else -30)
+        return (sx, sy), (bend, sy), (bend, ey), (ex, ey)
 
     def _render_static(self, W, H, states, snoozed):
         s, w = self.app.settings, self.app.watcher
@@ -312,6 +333,8 @@ class OfficeWindow:
             if st[0] != "off":
                 pts = [_bez(*self._wire(card, core), t / 40) for t in range(41)]
                 g.line(pts, fill=(acc if st[0] != "error" else RED) + (110,), width=7, joint="curve")
+        for (x0, y0, x1, y1) in self._panels(W, H).values():
+            g.rounded_rectangle([x0 + 2, y0 + 8, x1 - 2, y1 + 10], radius=16, fill=(0, 0, 0, 160))
         glow = glow.filter(ImageFilter.GaussianBlur(9))
         img1 = Image.alpha_composite(img1, glow)
 
@@ -348,13 +371,147 @@ class OfficeWindow:
         spend = self.app.brain.usage.this_month() if self.app.brain else 0
         parts = s.get("model", "").replace("claude-", "").split("-")
         model = (parts[0].title() + " " + ".".join(parts[1:])).strip()
-        self._text(d, cx, cy + 74, f"{model}  ·  ${spend:.2f} this month", "regular", 10, MUTED_C, anchor="mm")
+        mood = {"listening": "Listening", "thinking": "Thinking", "speaking": "Talking"}.get(getattr(self.ui, "state", ""), "Ready")
+        self._text(d, cx, cy + 70, f"{mood}  ·  {model}  ·  ${spend:.2f} this month", "regular", 10, MUTED_C,
+                   anchor="mm")
+
+        # centre panels: approvals, active task, performance
+        panels = self._panels(W, H)
+        self._approvals_panel(big, d, panels["approvals"], acc, acc2)
+        self._tasks_panel(big, d, panels["tasks"], acc, acc2)
+        self._perf_panel(big, d, panels["perf"], acc)
 
         # cards
         for (key, title, desc, setting, can_run, icon), (x, y, col), st in zip(WORKERS, cards, states):
             self._card(big, d, x, y, key, title, desc, setting, can_run, icon, st, acc, acc2)
 
         return big.resize((W, H), Image.LANCZOS)
+
+    # ---------- centre panels ----------
+    def _panel(self, img, d, rect, title, chip=None, chip_colour=None):
+        x0, y0, x1, y1 = rect
+        bg = _rgb(BG)
+        surface = _mix(bg, (255, 255, 255), 0.055)
+        d.rounded_rectangle([x0 * S, y0 * S, x1 * S, y1 * S], radius=16 * S, fill=surface,
+                            outline=_mix(bg, (255, 255, 255), 0.11), width=S)
+        if title:
+            self._text(d, x0 + 18, y0 + 22, title, "semibold", 11.5, INK)
+        if chip:
+            f = _font("semibold", 8.5)
+            tw = d.textlength(chip, font=f) / S
+            cx1 = x1 - 14
+            cx0 = cx1 - tw - 20
+            d.rounded_rectangle([cx0 * S, (y0 + 13) * S, cx1 * S, (y0 + 31) * S], radius=9 * S,
+                                fill=_mix(surface, chip_colour, 0.18))
+            d.text(((cx0 + 10) * S, (y0 + 22) * S), chip, font=f, fill=chip_colour, anchor="lm")
+        return surface
+
+    def _approvals_panel(self, img, d, rect, acc, acc2):
+        x0, y0, x1, y1 = rect
+        items = self.app.approvals.pending()
+        n = len(items)
+        surface = self._panel(img, d, rect, "Needs your OK", f"{n} waiting" if n else "All clear",
+                              AMBER if n else GREEN)
+        if not items:
+            self._text(d, (x0 + x1) / 2, (y0 + y1) / 2 + 6, "Nothing waiting for you.", "regular", 10, MUTED_C,
+                       anchor="mm")
+            self._text(d, (x0 + x1) / 2, (y0 + y1) / 2 + 26, "She'll ask here before acting on her own ideas.",
+                       "regular", 8.8, FAINT_C, anchor="mm")
+            return
+        rh = 50
+        space = y1 - y0 - 46
+        fit = n if n * (rh + 6) <= space else max(1, int((space - 18) // (rh + 6)))
+        y = y0 + 42
+        for a in items[:fit]:
+            rx0, rx1 = x0 + 12, x1 - 12
+            d.rounded_rectangle([rx0 * S, y * S, rx1 * S, (y + rh) * S], radius=11 * S,
+                                fill=_mix(surface, (255, 255, 255), 0.04))
+            d.rounded_rectangle([(rx0 + 8) * S, (y + 12) * S, (rx0 + 11) * S, (y + rh - 12) * S], radius=S,
+                                fill=AMBER if a["status"] == "pending" else acc2)
+            textw = rx1 - rx0 - 168
+            self._text(d, rx0 + 20, y + 19, a["title"], "semibold", 9.8, INK, maxw=textw)
+            src = {"moo": "Moo's idea", "email": "Inbox watch", "promises": "Promise tracker"}.get(a.get("source"), "")
+            detail = " · ".join(x for x in (a.get("detail"), src, _ago(a.get("created"))) if x)
+            self._text(d, rx0 + 20, y + 37, detail, "regular", 8.5, FAINT_C, maxw=textw)
+            if a["status"] == "running":
+                self._text(d, rx1 - 14, y + rh / 2, "Working on it…", "semibold", 9, acc2, anchor="rm")
+            else:
+                self._button(d, rx1 - 12 - 62, y + rh / 2, 62, "Reject", f"reject:{a['id']}", h=26)
+                self._button(d, rx1 - 12 - 62 - 8 - 76, y + rh / 2, 76, "Approve", f"approve:{a['id']}", h=26,
+                             primary=True, accent=acc)
+            y += rh + 6
+        if n > fit:
+            self._text(d, x0 + 18, y + 6, f"+ {n - fit} more waiting", "regular", 8.8, MUTED_C)
+
+    def _tasks_panel(self, img, d, rect, acc, acc2):
+        x0, y0, x1, y1 = rect
+        plan = getattr(self.app.brain, "plan", None) if self.app.brain else None
+        recent = plan and (plan["status"] in ("working", "checking") or
+                           time.time() - (plan.get("finished") or 0) < 1800)
+        if not recent:
+            self._panel(img, d, rect, "Active job", "Idle", GREY)
+            self._text(d, (x0 + x1) / 2, (y0 + y1) / 2 + 6, "No big jobs running.", "regular", 10, MUTED_C, anchor="mm")
+            self._text(d, (x0 + x1) / 2, (y0 + y1) / 2 + 26, "Try \u201cprep me for tomorrow\u201d or \u201csort my inbox\u201d.",
+                       "regular", 8.8, FAINT_C, anchor="mm")
+            return
+        chip, col = {"working": ("Working", acc2), "checking": ("Checking", AMBER), "done": ("Done · checked", GREEN),
+                     "issues": ("Done · issues", AMBER), "stopped": ("Stopped", RED)}.get(plan["status"], ("", GREY))
+        self._panel(img, d, rect, "Active job", chip, col)
+        w = x1 - x0 - 36
+        self._text(d, x0 + 18, y0 + 46, plan["goal"], "semibold", 9.8, INK, maxw=w)
+        steps = plan["steps"]
+        show_check = plan["status"] in ("done", "issues") and plan.get("check")
+        space = y1 - y0 - 58 - (24 if show_check else 4)
+        room = len(steps) if len(steps) * 21 <= space else max(1, int((space - 21) // 21))
+        y = y0 + 68
+        bg = _rgb(BG)
+        for i, st in enumerate(steps[:max(1, room)]):
+            cxp, cyp, r = x0 + 26, y, 6.5
+            status = st["status"]
+            if status == "done":
+                d.ellipse([(cxp - r) * S, (cyp - r) * S, (cxp + r) * S, (cyp + r) * S], fill=_mix(bg, GREEN, 0.85))
+                d.line([((cxp - 3) * S, cyp * S), ((cxp - 0.8) * S, (cyp + 2.4) * S), ((cxp + 3.2) * S, (cyp - 2.6) * S)],
+                       fill=(12, 14, 20), width=int(1.6 * S), joint="curve")
+            elif status == "doing":
+                d.ellipse([(cxp - r) * S, (cyp - r) * S, (cxp + r) * S, (cyp + r) * S], outline=acc2, width=int(1.5 * S))
+                d.ellipse([(cxp - 2.8) * S, (cyp - 2.8) * S, (cxp + 2.8) * S, (cyp + 2.8) * S], fill=acc2)
+            elif status == "failed":
+                d.ellipse([(cxp - r) * S, (cyp - r) * S, (cxp + r) * S, (cyp + r) * S], fill=_mix(bg, RED, 0.8))
+                for a, b in ((-2.5, 2.5), (2.5, -2.5)):
+                    d.line([((cxp - 2.5) * S, (cyp + a) * S), ((cxp + 2.5) * S, (cyp + b) * S)], fill=(12, 14, 20),
+                           width=int(1.5 * S))
+            else:
+                d.ellipse([(cxp - r) * S, (cyp - r) * S, (cxp + r) * S, (cyp + r) * S],
+                          outline=_mix(bg, (255, 255, 255), 0.28), width=int(1.3 * S))
+                if status == "skipped":
+                    d.line([((cxp - 3) * S, cyp * S), ((cxp + 3) * S, cyp * S)], fill=MUTED_C, width=int(1.3 * S))
+            txt = st["text"] + (f"  ·  {st['note']}" if st.get("note") else "")
+            self._text(d, x0 + 42, y, txt, "regular", 9, INK if status in ("doing", "done") else MUTED_C,
+                       maxw=w - 26)
+            y += 21
+        if len(steps) > room:
+            self._text(d, x0 + 42, y, f"+ {len(steps) - room} more steps", "regular", 8.5, FAINT_C)
+        if show_check:
+            self._text(d, x0 + 18, y1 - 18, ("✓ " if plan["status"] == "done" else "! ") + plan["check"], "regular",
+                       8.8, GREEN if plan["status"] == "done" else AMBER, maxw=w)
+
+    def _perf_panel(self, img, d, rect, acc):
+        x0, y0, x1, y1 = rect
+        self._panel(img, d, rect, None)
+        p = self.app._perf_today() if hasattr(self.app, "_perf_today") else {}
+        avg = (p.get("secs", 0) / p["timed"]) if p.get("timed") else None
+        tiles = [("Replies today", str(p.get("replies", 0))),
+                 ("Avg reply", f"{avg:.1f}s" if avg else "–"),
+                 ("Jobs done", str(p.get("plans", 0))),
+                 ("Approved today", str(self.app.approvals.done_today()))]
+        tw = (x1 - x0) / len(tiles)
+        bg = _rgb(BG)
+        for i, (label, value) in enumerate(tiles):
+            tx = x0 + i * tw
+            if i:
+                d.line([(tx * S, (y0 + 16) * S), (tx * S, (y1 - 16) * S)], fill=_mix(bg, (255, 255, 255), 0.1), width=S)
+            self._text(d, tx + tw / 2, y0 + 27, value, "semibold", 15, INK, anchor="mm")
+            self._text(d, tx + tw / 2, y0 + 50, label, "regular", 8.3, FAINT_C, anchor="mm")
 
     def _text(self, d, x, y, text, kind, size, fill, anchor="lm", maxw=None):
         f = _font(kind, size)
@@ -428,7 +585,9 @@ class OfficeWindow:
             self._text(d, x + 25, y + 91, alert, "regular", 9, MUTED_C, maxw=self.CW - 42)
         # footer
         if last:
-            self._text(d, x + 16, y + self.CH - 17, f"Last check {last}", "regular", 8.5, FAINT_C)
+            used = (62 if setting else 0) + (76 if can_run and not off else 0)
+            self._text(d, x + 16, y + self.CH - 17, f"Last check {last}", "regular", 8.5, FAINT_C,
+                       maxw=self.CW - 40 - used)
         bx = x + self.CW - 12
         if setting:
             bw = 62
@@ -453,6 +612,7 @@ class OfficeWindow:
         t = time.time() - self.t0
         frame = self.base.copy()
         cards, core = self._layout(W, H)
+        panels = list(self._panels(W, H).values())
         cx, cy, size = core
         # orb
         ui_state = self.ui.state if self.ui.state in ("listening", "thinking", "speaking") else "idle"
@@ -467,6 +627,8 @@ class OfficeWindow:
                 p = self._wire(card, core)
                 for k in range(3):
                     px, py = _bez(*p, ((t * 0.45) + k / 3) % 1.0)
+                    if any(a <= px <= c and b <= py <= e for a, b, c, e in panels):
+                        continue
                     frame.alpha_composite(sprite, (int(px - sprite.width / 2), int(py - sprite.height / 2)))
         # status lights (breathing when working)
         d = ImageDraw.Draw(frame)

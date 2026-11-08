@@ -106,6 +106,9 @@ DEFAULTS = {
     "quote_followup_days": 7,
     "clash_alerts": True,
     "learn_memory": True,  # offer to remember things she notices
+    "suggest_actions": True,  # workers offer to draft replies and chases (needs your OK)
+    "log_decisions": True,  # note decisions in the long-term journal
+    "plan_model": "",  # brain for big multi-step jobs ("" = same as normal)
     "quiet_from": "19:00",
     "quiet_to": "07:00",
     "quiet_weekends": True,

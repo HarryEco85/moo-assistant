@@ -14,6 +14,7 @@ LENGTH_CHOICES = [("short", "Short and snappy"), ("normal", "Normal"), ("detaile
 WHISPER_CHOICES = [("base.en", "Fast (less accurate)"), ("small.en", "Balanced"),
                    ("medium.en", "Most accurate (best with a graphics card)")]
 MODEL_CHOICES = [("claude-haiku-5-5", "Haiku: fast and cheapest"), ("claude-sonnet-5-5", "Sonnet: smarter, about 20x the cost")]
+PLAN_MODEL_CHOICES = [("", "Same as above"), ("claude-sonnet-5-5", "Sonnet: better at long jobs, costs more")]
 
 
 class SettingsWindow:
@@ -25,7 +26,7 @@ class SettingsWindow:
         win.title(f"{self.s.get('assistant_name', 'Moo')} settings")
         win.configure(bg=BG)
         h = min(760, win.winfo_screenheight() - 120)
-        win.geometry(f"580x{h}")
+        win.geometry(f"680x{h}")
         win.minsize(520, 420)
         win.transient(ui.root)
         self._style()
@@ -44,6 +45,7 @@ class SettingsWindow:
         self.tab_persona = self._tab(nb, "Personality")
         self.tab_listen = self._tab(nb, "Listening")
         self.tab_pro = self._tab(nb, "Proactive")
+        self.tab_skills = self._tab(nb, "Skills")
         self.tab_accounts = self._tab(nb, "Accounts")
         self.tab_phone = self._tab(nb, "Phone")
         self.tab_system = self._tab(nb, "System")
@@ -52,6 +54,7 @@ class SettingsWindow:
         self._build_persona()
         self._build_listening()
         self._build_proactive()
+        self._build_skills()
         self._build_accounts()
         self._build_phone()
         self._build_system()
@@ -313,6 +316,9 @@ class SettingsWindow:
         self._check(t, "vh3_alerts", "Morning VH3 check: tell me about new critical BigChange issues",
                     s.get("vh3_alerts", True))
         self._check(t, "learn_memory", "Offer to remember things she notices about me", s.get("learn_memory", True))
+        self._check(t, "suggest_actions", "Offer to draft replies and quote chases (only with my OK)",
+                    s.get("suggest_actions", True))
+        self._check(t, "log_decisions", "Keep a log of decisions I make, for later", s.get("log_decisions", True))
         self._check(t, "wrap_up", "End-of-day wrap-up", s.get("wrap_up", False))
         self._entry(t, "wrap_time", "Wrap-up time (weekdays)", s.get("wrap_time", "17:30"))
         self._label(t, "Quiet hours", "No alerts between these times. Reminders you set still come through.")
@@ -338,6 +344,8 @@ class SettingsWindow:
                     note="Saved. Paste a new one to replace it." if get_api_key()
                     else "Needed. From console.anthropic.com, starts sk-ant-")
         self._combo(t, "model", "Brain", MODEL_CHOICES, s.get("model", "claude-haiku-5-5"))
+        self._combo(t, "plan_model", "Brain for big jobs", PLAN_MODEL_CHOICES, s.get("plan_model", ""),
+                    note="Used once she starts a multi-step plan (inbox sweep, weekly summary).")
         self._entry(t, "monthly_budget_usd", "Monthly spending cap (US$)", str(s.get("monthly_budget_usd", 10)))
         tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
         self._combo(t, "outlook_mode", "Outlook connection",
@@ -451,6 +459,88 @@ class SettingsWindow:
         self._button(row, "Open her folder", self.app.open_data_folder).pack(side="left")
         self._button(row, "Edit memories", self.app.edit_memories).pack(side="left", padx=8)
         self._button(row, "Clear conversation", self._clear).pack(side="left")
+
+    # ---------- skills ----------
+    def _build_skills(self):
+        t = self.tab_skills
+        tk.Label(t, text="Jobs you've taught her. Say the name (or something like it) and she follows the steps.",
+                 bg=SURFACE, fg=MUTED, font=(FONT, 9), anchor="w", justify="left", wraplength=470).pack(fill="x", pady=(10, 6))
+        self.skill_list = tk.Listbox(t, height=7, bg=SURFACE_HI, fg=TEXT, selectbackground=accent(self.s),
+                                     selectforeground=BG, relief="flat", highlightthickness=0, bd=0,
+                                     font=(FONT, 10), activestyle="none")
+        self.skill_list.pack(fill="x")
+        self.skill_list.bind("<<ListboxSelect>>", lambda e: self._skill_pick())
+        self._label(t, "Name")
+        self.skill_name = tk.Entry(t, bg=SURFACE_HI, fg=TEXT, relief="flat", insertbackground=TEXT, font=(FONT, 10),
+                                   highlightthickness=0, bd=0)
+        self.skill_name.pack(fill="x", ipady=6)
+        self._label(t, "When to use it", "Phrases you might say, e.g. 'weekly numbers, how did last week go'.")
+        self.skill_when = tk.Entry(t, bg=SURFACE_HI, fg=TEXT, relief="flat", insertbackground=TEXT, font=(FONT, 10),
+                                   highlightthickness=0, bd=0)
+        self.skill_when.pack(fill="x", ipady=6)
+        self._label(t, "Steps", "Numbered, plain English. Mention where to look: email, calendar, VH3, files.")
+        self.skill_steps = tk.Text(t, height=11, bg=SURFACE_HI, fg=TEXT, relief="flat", insertbackground=TEXT,
+                                   font=(FONT, 10), wrap="word", highlightthickness=0, bd=0, padx=8, pady=6)
+        self.skill_steps.pack(fill="x")
+        row = tk.Frame(t, bg=SURFACE)
+        row.pack(fill="x", pady=(10, 4))
+        self._button(row, "Save skill", self._skill_save, primary=True).pack(side="left")
+        self._button(row, "New", self._skill_new).pack(side="left", padx=8)
+        self._button(row, "Delete", self._skill_delete).pack(side="left")
+        tk.Label(t, text='Or just tell her: "save that as a skill called Friday cash check".', bg=SURFACE, fg=FAINT,
+                 font=(FONT, 8), anchor="w").pack(fill="x", pady=(6, 0))
+        self._skill_current = None
+        self._skill_refresh()
+
+    def _skills(self):
+        return self.app.brain.skills if self.app.brain else None
+
+    def _skill_refresh(self, select=None):
+        sk = self._skills()
+        self.skill_list.delete(0, "end")
+        self._skill_items = sk.all() if sk else []
+        for i, item in enumerate(self._skill_items):
+            self.skill_list.insert("end", "  " + item["name"])
+            if select and item["name"].lower() == select.lower():
+                self.skill_list.selection_set(i)
+
+    def _skill_fill(self, item):
+        self._skill_current = item["name"] if item else None
+        for w, v in ((self.skill_name, item.get("name", "") if item else ""),
+                     (self.skill_when, item.get("when", "") if item else "")):
+            w.delete(0, "end")
+            w.insert(0, v)
+        self.skill_steps.delete("1.0", "end")
+        self.skill_steps.insert("1.0", item.get("steps", "") if item else "")
+
+    def _skill_pick(self):
+        sel = self.skill_list.curselection()
+        if sel:
+            self._skill_fill(self._skill_items[sel[0]])
+
+    def _skill_new(self):
+        self.skill_list.selection_clear(0, "end")
+        self._skill_fill(None)
+        self.skill_name.focus_set()
+
+    def _skill_save(self):
+        sk = self._skills()
+        if not sk:
+            return
+        name = self.skill_name.get().strip()
+        out = sk.save(name, self.skill_when.get(), self.skill_steps.get("1.0", "end"), old_name=self._skill_current)
+        if out.startswith("Saved"):
+            self._skill_current = name
+            self._skill_refresh(select=name)
+        messagebox.showinfo("Moo", out, parent=self.win)
+
+    def _skill_delete(self):
+        sk = self._skills()
+        name = self._skill_current or self.skill_name.get().strip()
+        if sk and name and messagebox.askyesno("Moo", f"Delete the skill '{name}'?", parent=self.win):
+            sk.delete(name)
+            self._skill_fill(None)
+            self._skill_refresh()
 
     def _test_gmail(self):
         self._store_secrets()

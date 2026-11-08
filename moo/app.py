@@ -21,6 +21,8 @@ YES = re.compile(r"^(yes|yeah|yep|yup|go on|please( do)?|sure|ok(ay)?|do it)\b.{
 NO = re.compile(r"^(no|nope|nah|don'?t|no thanks?|leave it|skip( it)?)\b.{0,30}$", re.I)
 OFFICE = re.compile(r"\b(show|open)\b.{0,12}\b(office|workers|board)\b", re.I)
 UPDATE_CHECK = re.compile(r"\b(check|look) (for )?(an? )?updates?\b|\bany updates?\b", re.I)
+APPROVE = re.compile(r"^(approve(d)?( it| that)?|go ahead( with it)?|yes,? (do|go ahead with) (it|that))[.!]?$", re.I)
+REJECT = re.compile(r"^(reject( it| that)?|don'?t do (it|that)|no,? (leave|skip) (it|that))[.!]?$", re.I)
 UPDATE_INSTALL = re.compile(r"\b(install|do|run|get|apply) (the |that )?update\b|\bupdate yourself\b", re.I)
 
 
@@ -41,8 +43,12 @@ class MooApp:
         self.brain = None
         from .phone import Phone
         from .proactive import Watcher
+        from .approvals import Approvals
         self.phone = Phone(self)
         self.watcher = Watcher(self)
+        self.approvals = Approvals()
+        self.perf = {"date": "", "replies": 0, "secs": 0.0, "plans": 0}
+        self._plans_seen = set()
 
     # ---------- startup ----------
     def start(self):
@@ -110,6 +116,9 @@ class MooApp:
                            connections=self.connections_report, phone=self.phone,
                            show_card=self.show_card)
         self.brain.watcher = self.watcher
+        self.brain.approvals = self.approvals
+        self.brain.on_approval = self.show_approval
+        self.brain.on_plan = self._plan_changed
 
     def _load_voice(self):
         from .voice import Ears, Mouth
@@ -305,6 +314,15 @@ class MooApp:
         if getattr(self, "pending_memory", None) and (YES.match(text.strip()) or NO.match(text.strip())):
             self.say(self.answer_memory(bool(YES.match(text.strip()))))
             return None
+        if self.approvals.pending() and (APPROVE.match(text.strip()) or REJECT.match(text.strip())):
+            item = next((a for a in reversed(self.approvals.pending()) if a["status"] == "pending"), None)
+            if not item:
+                self.say("That one's already under way.")
+            elif APPROVE.match(text.strip()):
+                self.approve(item["id"])
+            else:
+                self.reject(item["id"])
+            return None
         if OFFICE.search(text):
             self.ui.later(self.ui.open_office)
             self.say("Here's the office. Everyone's at their desks.")
@@ -369,6 +387,7 @@ class MooApp:
             timing["heard"] = self._heard
             self._heard = None
         self.last_timing = timing
+        self._count_reply(timing["total"])
         self._footer()
         return reply
 
@@ -407,24 +426,37 @@ class MooApp:
     # ---------- learning memory ----------
     def _learn(self, user_text, reply, from_phone=False):
         """Notice a lasting fact or preference in the exchange and offer to remember it."""
-        if not self.settings.get("learn_memory", True) or len(user_text) < 15 or getattr(self, "pending_memory", None):
+        want_fact = self.settings.get("learn_memory", True) and not getattr(self, "pending_memory", None)
+        want_decision = self.settings.get("log_decisions", True)
+        if len(user_text) < 15 or not (want_fact or want_decision):
             return
         try:
             known = self.brain.memory.as_prompt()
             declined = "; ".join(self.watcher.state.get("declined_facts", [])[-30:]) or "none"
             reply_json = self.brain.quick(
-                f"You help an assistant learn about {user_name(self.settings)}. From this exchange, is there ONE lasting "
-                "fact or preference about them worth remembering for the future (how they like things done, people "
-                "and roles in their work, recurring routines)? Not one-off tasks, not things already known, never "
-                "passwords, money details, health or anything sensitive.\n"
+                f"You help an assistant learn about {user_name(self.settings)}. From this exchange:\n"
+                "1. fact: is there ONE lasting fact or preference about them worth remembering (how they like things "
+                "done, people and roles in their work, recurring routines)? Not one-off tasks, not things already "
+                "known, never passwords, money details, health or anything sensitive.\n"
+                "2. decision: did THEY clearly decide something in this exchange (chose a supplier, a price, an "
+                "approach, a date)? One line, what and why if given. Not things the assistant suggested that they "
+                "didn't accept.\n"
                 f"Already known:\n{known}\nDeclined before: {declined}\n"
-                'Reply JSON only: {"fact": "<short, third person, e.g. Prefers calls before 10am>"} or {"fact": null}.',
+                'Reply JSON only: {"fact": "<short, third person, e.g. Prefers calls before 10am>" or null, '
+                '"decision": "<e.g. Going with Jewson for the Tilbury roof materials (cheaper delivery)>" or null}.',
                 f"USER: {user_text}\nASSISTANT: {reply}")
             m = re.search(r"\{.*\}", reply_json or "", re.S)
-            fact = (json.loads(m.group(0)).get("fact") if m else None) or ""
+            found = json.loads(m.group(0)) if m else {}
+            fact = (found.get("fact") if want_fact else None) or ""
+            decision = (found.get("decision") if want_decision else None) or ""
         except Exception:
             log.exception("Learning check failed")
             return
+        if decision and len(decision) < 300:
+            try:
+                self.brain.journal.log_decision(decision, source="noticed")
+            except Exception:
+                log.exception("Decision log failed")
         fact = fact.strip().rstrip(".")
         if not fact or len(fact) > 160 or fact.lower() in known.lower():
             return
@@ -517,7 +549,8 @@ class MooApp:
             note = (f"[Sent from {who}'s phone{' as a voice note' if heard else ''}. {who} is away from the PC: "
                     "reply in text for a phone screen, don't open files on the PC, and keep it brief.] ")
             try:
-                reply = self.brain.ask(note + text)
+                reply = self.brain.ask(note + text, channel="phone")
+                self._count_reply(None)
             except Exception as e:
                 log.exception("Phone request failed")
                 reply = f"Sorry, something went wrong: {str(e)[:160]}"
@@ -532,6 +565,82 @@ class MooApp:
             self.ui.set_state("idle")
             self.busy.release()
             self._footer()
+
+    # ---------- approvals ----------
+    def show_approval(self, item, notify=True):
+        """A new request for the user's OK: buttons in the chat, and on the phone."""
+        aid = item["id"]
+        self.ui.add_choice(f"Needs your OK: {item['title']}" + (f" ({item['detail']})" if item.get("detail") else ""),
+                           [("Approve", lambda: self.approve(aid)), ("Reject", lambda: self.reject(aid))])
+        if notify and self.settings.get("alerts_to_phone", True):
+            threading.Thread(target=self.phone.send_approval, args=(item,), daemon=True).start()
+
+    def approve(self, aid, from_phone=False):
+        item = self.approvals.claim(aid)
+        if not item:
+            return False
+
+        def run():
+            if not self.busy.acquire(timeout=180):
+                self.approvals.set(aid, "pending")
+                return
+            try:
+                self.ui.add_message("sys", f"Approved: {item['title']}")
+                self.ui.set_state("thinking", "On it")
+                who = user_name(self.settings)
+                try:
+                    reply = self.brain.ask(f"[Approved by {who} from the approval queue. Do this now, then confirm in "
+                                           f"one short sentence.] {item['instruction']}", channel="approval")
+                    self.approvals.set(aid, "done", reply)
+                except Exception as e:
+                    log.exception("Approved job failed")
+                    reply = f"Sorry, that didn't work: {str(e)[:150]}"
+                    self.approvals.set(aid, "failed", reply)
+                self.ui.add_message("Moo", reply)
+                if from_phone:
+                    self.phone.notify(reply)
+                elif self.mouth and self.mouth.voice and self.settings.get("speak_aloud", True):
+                    self.say(reply, show=False)
+            finally:
+                self.ui.set_state("idle")
+                self.busy.release()
+        threading.Thread(target=run, daemon=True, name="approved").start()
+        return True
+
+    def reject(self, aid, from_phone=False):
+        item = self.approvals.set(aid, "rejected")
+        if item:
+            self.ui.add_message("sys", f"Rejected: {item['title']}")
+        return bool(item)
+
+    # ---------- plans and performance ----------
+    def _plan_changed(self, plan):
+        key = plan["started"]
+        if plan["status"] == "working" and key not in self._plans_seen:
+            self._plans_seen.add(key)
+            steps = "  ".join(f"{i}. {st['text']}" for i, st in enumerate(plan["steps"], 1))
+            self.ui.add_message("sys", f"Plan: {plan['goal']}.  {steps}")
+        elif plan["status"] in ("done", "issues") and ("end", key) not in self._plans_seen:
+            self._plans_seen.add(("end", key))
+            self._count_plan()
+            mark = "Checked ✓" if plan["status"] == "done" else "Checked: some issues"
+            self.ui.add_message("sys", f"{mark}  {plan.get('check', '')}".strip())
+
+    def _perf_today(self):
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self.perf["date"] != today:
+            self.perf = {"date": today, "replies": 0, "secs": 0.0, "timed": 0, "plans": 0}
+        return self.perf
+
+    def _count_reply(self, secs):
+        p = self._perf_today()
+        p["replies"] += 1
+        if secs:
+            p["secs"] += secs
+            p["timed"] = p.get("timed", 0) + 1
+
+    def _count_plan(self):
+        self._perf_today()["plans"] += 1
 
     def _briefing_loop(self):
         while True:

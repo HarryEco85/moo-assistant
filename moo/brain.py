@@ -8,11 +8,15 @@ else.
 import json
 import re
 import logging
+import threading
+import time
 from datetime import datetime
 
 from . import extras, files
 from .config import get_api_key, user_name
 from .memory import History, Memory, Usage
+from .journal import Journal
+from .skills import Skills
 from .gmail import Gmail, GmailNotConfigured, google_calendar_events
 from .outlook import day_range, events_text
 from .outlook import Outlook, OutlookNotConfigured
@@ -63,9 +67,28 @@ Tools:
 - For reminders, convert natural times into exact local times using the current date and time below. "Tomorrow morning" means 08:00.
 - When {user} says "remember..." use remember; "forget..." use forget.
 
+Skills (saved routines {user} has taught you):
+{skills}
+- When a request matches a skill, call use_skill first and follow its steps exactly, in order.
+- When {user} says "save that as a skill", "whenever I ask for X, do Y" or "teach you to...", write clear numbered steps and use save_skill (confirm the name in one short line).
+
+Big jobs (plan, act, check):
+- For anything needing several steps or tools across systems (an inbox sweep, prep for tomorrow, a weekly summary, most skills), call make_plan first with 2 to 7 short steps. Work through them, calling update_plan as each step starts and finishes (status doing, done, skipped or failed, with a short note of what you found).
+- Before answering, CHECK your own work: re-read what you produced, confirm drafts and reminders were actually saved (the tool said so), make sure numbers add up and nothing in the request was missed. Then call finish_plan with what you checked and any issues. Only then give {user} a short summary of the outcome.
+- Simple questions need no plan.
+
+Asking first (the approval queue):
+- If you think something would help but {user} didn't ask for it (drafting a chase, a reply, setting a reminder, messaging their phone, running a skill), don't do it: use request_approval with a short title, a one-line reason and the exact instruction you'd carry out. {user} approves or rejects it on the PC or phone. Messages starting "[Approved" mean {user} has said yes: just do it.
+
+Long memory:
+- Every conversation and decision is kept in a searchable journal. When {user} refers to anything from before ("what did we decide about...", "last week", "that supplier I mentioned", "remind me what I said"), use search_past before answering, and give the date.
+- When {user} makes a clear decision (chooses a supplier, a price, an approach, a date), record it with log_decision in one line, including why if they said.
+
 {custom}Current local date and time: {now}
 Things {user} has asked you to remember:
-{memory}"""
+{memory}
+Recent decisions:
+{decisions}"""
 
 
 class _SentenceSplitter:
@@ -178,6 +201,42 @@ def _tools():
          "input_schema": {"type": "object", "properties": {"fact": {"type": "string"}}, "required": ["fact"]}},
         {"name": "forget", "description": "Delete saved memories matching these words.",
          "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+        {"name": "use_skill", "description": "Load the steps of a saved skill by name. Call before doing a job a skill covers.",
+         "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+        {"name": "save_skill", "description": "Save (or update) a skill: a repeatable job with numbered steps the user has taught you.",
+         "input_schema": {"type": "object", "properties": {
+             "name": {"type": "string", "description": "Short name, e.g. 'Friday cash check'"},
+             "when": {"type": "string", "description": "Phrases that should trigger it"},
+             "steps": {"type": "string", "description": "Numbered steps, naming the tools to use"}},
+             "required": ["name", "steps"]}},
+        {"name": "make_plan", "description": "Start a multi-step job: set the goal and 2-7 short steps. Shown live to the user.",
+         "input_schema": {"type": "object", "properties": {
+             "goal": {"type": "string"}, "steps": {"type": "array", "items": {"type": "string"}}},
+             "required": ["goal", "steps"]}},
+        {"name": "update_plan", "description": "Update a plan step (1-based) as you work.",
+         "input_schema": {"type": "object", "properties": {
+             "step": {"type": "integer"}, "status": {"type": "string", "enum": ["doing", "done", "skipped", "failed"]},
+             "note": {"type": "string", "description": "Short note of what you found or did"}},
+             "required": ["step", "status"]}},
+        {"name": "finish_plan", "description": "Finish the plan after checking your work.",
+         "input_schema": {"type": "object", "properties": {
+             "checked": {"type": "string", "description": "What you verified"},
+             "ok": {"type": "boolean", "description": "False if anything is missing or went wrong"},
+             "issues": {"type": "string"}}, "required": ["checked", "ok"]}},
+        {"name": "request_approval", "description": "Ask the user's OK before doing something they didn't ask for. Nothing happens until they approve.",
+         "input_schema": {"type": "object", "properties": {
+             "title": {"type": "string", "description": "e.g. 'Draft a chase to Kier about the Leeds quote'"},
+             "reason": {"type": "string", "description": "One line: why"},
+             "instruction": {"type": "string", "description": "Exactly what you'll do if approved, with any ids needed"}},
+             "required": ["title", "instruction"]}},
+        {"name": "list_approvals", "description": "What's waiting for the user's approval.",
+         "input_schema": {"type": "object", "properties": {}}},
+        {"name": "search_past", "description": "Search past conversations and logged decisions (the long-term journal).",
+         "input_schema": {"type": "object", "properties": {
+             "query": {"type": "string", "description": "Key words: names, sites, topics"},
+             "days": {"type": "integer", "description": "How far back, default 90"}}, "required": ["query"]}},
+        {"name": "log_decision", "description": "Record a decision the user made, in one line (what, and why if given).",
+         "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     ]
 
 
@@ -193,6 +252,14 @@ class Brain:
         self.phone = phone  # the Telegram link, for send_to_phone
         self.show_card = show_card or (lambda kind, data: None)  # visual cards in the window
         self.watcher = None  # the proactive helper (promises, clashes), set by the app
+        self.approvals = None  # the approval queue, set by the app
+        self.on_approval = lambda item: None  # app shows new requests on the PC and phone
+        self.on_plan = lambda plan: None  # app shows plan progress
+        self.plan = None
+        self.skills = Skills()
+        self.journal = Journal()
+        self._lock = threading.RLock()  # one conversation at a time
+        self._approved_run = False
         from .connectors import MCPConnector
         self.vh3 = MCPConnector("vh3", settings)
         self.memory = Memory()
@@ -382,6 +449,33 @@ class Brain:
                 return self.memory.remember(args["fact"])
             if name == "forget":
                 return self.memory.forget(args["text"])
+            if name == "use_skill":
+                sk = self.skills.find(args.get("name", ""))
+                if not sk:
+                    return "No skill by that name. Skills: " + self.skills.as_prompt()
+                self.status(f"Skill: {sk['name']}")
+                return f"Skill '{sk['name']}'. Follow these steps in order:\n{sk['steps']}"
+            if name == "save_skill":
+                return self.skills.save(args.get("name", ""), args.get("when", ""), args.get("steps", ""))
+            if name in ("make_plan", "update_plan", "finish_plan"):
+                return self._plan_tool(name, args)
+            if name == "request_approval":
+                if self._approved_run:
+                    return "This is already an approved job: just do it."
+                if not self.approvals:
+                    return "Approvals aren't available."
+                item = self.approvals.add(args["title"], args.get("reason", ""), args["instruction"], source="moo")
+                if item:
+                    self.on_approval(item)
+                return ("Queued for approval. Tell the user in a few words that it's waiting for their OK "
+                        "(office view, the buttons in chat, or their phone). Don't do it now.")
+            if name == "list_approvals":
+                return self.approvals.as_text() if self.approvals else "Approvals aren't available."
+            if name == "search_past":
+                self.status("Looking back through our chats")
+                return self.journal.search(args.get("query", ""), args.get("days", 90))
+            if name == "log_decision":
+                return self.journal.log_decision(args["text"])
             return f"Unknown tool {name}."
         except GmailNotConfigured:
             return ("Gmail isn't connected yet: add the Gmail address and app password in Settings > Accounts. "
@@ -394,9 +488,64 @@ class Brain:
             return f"Tool error: {e}"
 
     # ---------- conversation ----------
-    def ask(self, text: str, on_sentence=None) -> str:
+    def ask(self, text: str, on_sentence=None, channel="pc") -> str:
         """Answer a question. With on_sentence, each finished sentence is passed on
         the moment it arrives, so Moo can start speaking before the reply is done."""
+        with self._lock:
+            self._approved_run = channel == "approval"
+            try:
+                reply = self._ask(text, on_sentence)
+            finally:
+                self._approved_run = False
+                if self.plan and self.plan["status"] in ("working", "checking"):
+                    self.plan["status"] = "stopped"
+                    self.plan["finished"] = time.time()
+                    self.on_plan(self.plan)
+            try:
+                self.journal.add_turn(text, reply, channel)
+            except Exception:
+                log.exception("Journal write failed")
+            return reply
+
+    def _decisions(self) -> str:
+        try:
+            rows = self.journal.recent_decisions(8)
+        except Exception:
+            return "(none)"
+        return "\n".join(f"- {ts[:10]}: {t}" for ts, t in rows) or "(none yet)"
+
+    def _plan_tool(self, name, args) -> str:
+        if name == "make_plan":
+            steps = [str(x).strip() for x in (args.get("steps") or []) if str(x).strip()][:7]
+            self.plan = {"goal": args.get("goal", "").strip()[:160], "steps": [{"text": t[:120], "status": "todo",
+                         "note": ""} for t in steps], "status": "working", "started": time.time(),
+                         "finished": None, "check": "", "ok": None}
+            self.on_plan(self.plan)
+            self.status("Working through the plan")
+            return "Plan started. Work through the steps, update_plan as you go, then check and finish_plan."
+        if not self.plan:
+            return "No plan running; call make_plan first."
+        if name == "update_plan":
+            i = int(args.get("step", 0)) - 1
+            if 0 <= i < len(self.plan["steps"]):
+                st = self.plan["steps"][i]
+                st["status"] = args.get("status", "done")
+                if args.get("note"):
+                    st["note"] = str(args["note"])[:140]
+                self.status(f"Step {i + 1} of {len(self.plan['steps'])}: {st['text']}")
+            if all(s["status"] in ("done", "skipped", "failed") for s in self.plan["steps"]):
+                self.plan["status"] = "checking"
+                self.status("Checking my work")
+            self.on_plan(self.plan)
+            return "Updated."
+        self.plan["status"] = "done" if args.get("ok", True) else "issues"
+        self.plan["check"] = (str(args.get("checked", "")) + (" Issues: " + str(args["issues"]) if args.get("issues") else ""))[:300]
+        self.plan["ok"] = bool(args.get("ok", True))
+        self.plan["finished"] = time.time()
+        self.on_plan(self.plan)
+        return "Plan finished. Now give the user a short summary of the outcome."
+
+    def _ask(self, text, on_sentence=None) -> str:
         budget = float(self.settings.get("monthly_budget_usd", 10.0))
         if budget and self.usage.this_month() >= budget:
             msg = (f"I've hit this month's spending cap of {budget:.0f} dollars, so I'm pausing. "
@@ -418,7 +567,9 @@ class Brain:
                                    signoff=(self.settings.get("email_signoff") or "Kind regards,\n" + (self.settings.get("user_name") or "")).strip(),
                                    home=(self.settings.get("home_location") or "his home (location not set; suggest adding it in Settings > Personality)"),
                                    now="shown in square brackets at the start of each message from the user",
-                                   memory=self.memory.as_prompt()),
+                                   memory=self.memory.as_prompt(),
+                                   skills=self.skills.as_prompt(),
+                                   decisions=self._decisions()),
             "cache_control": {"type": "ephemeral"},
         }]
         stamped = f"[{datetime.now().strftime('%A %d %B %Y, %H:%M')}] {text}"
@@ -429,8 +580,21 @@ class Brain:
                               "user_location": {"type": "approximate", "country": "GB", "timezone": "Europe/London"}}]
         spoken = []
         splitter = _SentenceSplitter(lambda sent: (spoken.append(sent), on_sentence and on_sentence(sent)))
-        for _ in range(8):  # at most 8 tool rounds per question
-            self.status("Thinking")
+        rounds = 0
+        plan_at_start = self.plan
+        while True:
+            rounds += 1
+            planning = self.plan is not None and self.plan is not plan_at_start
+            if rounds > (30 if planning else 8):  # big jobs get more steps
+                msg = "That took more steps than I'm allowed, so I've stopped. Could you narrow it down?"
+                spoken.append(msg)
+                if on_sentence:
+                    on_sentence(msg)
+                break
+            if planning and self.settings.get("plan_model"):
+                model = self.settings["plan_model"]
+            if rounds == 1 or not planning:
+                self.status("Thinking")
             try:
                 resp = self._stream(model, system, tools, messages, splitter)
             except Exception as e:
@@ -460,11 +624,6 @@ class Brain:
                     log.info("tool %s(%s) -> %d chars", b.name, json.dumps(b.input)[:200], len(out))
                     results.append({"type": "tool_result", "tool_use_id": b.id, "content": out[:20000]})
             messages.append({"role": "user", "content": results})
-        else:
-            msg = "That took more steps than I'm allowed, so I've stopped. Could you narrow it down?"
-            spoken.append(msg)
-            if on_sentence:
-                on_sentence(msg)
         reply = " ".join(spoken).strip() or "Done."
         self.history.add_exchange(text, reply)
         return reply

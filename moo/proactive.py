@@ -150,6 +150,14 @@ class Watcher:
         if self.s.get("alerts_to_phone", True):
             threading.Thread(target=self.app.phone.notify, args=(f"{title}\n{text}",), daemon=True).start()
 
+    def suggest(self, title, detail, instruction, worker, key):
+        """Offer an action through the approval queue (nothing happens until approved)."""
+        if not self.s.get("suggest_actions", True) or not getattr(self.app, "approvals", None):
+            return
+        item = self.app.approvals.add(title, detail, instruction, source=worker, key=key)
+        if item:
+            self.app.show_approval(item, notify=not self.quiet_now())
+
     # ---------- loop ----------
     def _loop(self):
         time.sleep(45)  # let her finish starting up
@@ -277,6 +285,10 @@ class Watcher:
         self._note("email", f"Checked {len(fetched)} recent emails, {len(new)} new, {len(flagged)} flagged")
         for p in flagged:
             self.alert(str(p["alert"])[:300], "New email")
+            self.suggest(f"Draft a reply: {str(p['alert'])[:90]}", "Flagged as needing you",
+                         f"Read email id {p.get('id')} and save a short draft reply to it as {user_name(self.s)} "
+                         "(create_email_draft with reply_to_message_id). Leave [brackets] for anything you don't know.",
+                         "email", f"reply:{p.get('id')}")
 
     # ---------- daily nudges ----------
     def _due(self, name, hhmm, default):
@@ -452,6 +464,12 @@ class Watcher:
             q["nudged"] = True
             if reply.strip().upper().startswith("NO"):
                 quiet.append(f"{q['to']} ({q['about']})" if q.get("about") else q["to"])
+                self.suggest(f"Chase the quote to {q['to']}", f"No reply in {days} days" +
+                             (f" · {q['about']}" if q.get("about") else ""),
+                             f"Use the 'Chase a quote' skill for the quote sent to {q['to']} on {q['sent'][:10]}" +
+                             (f" about {q['about']}" if q.get("about") else "") +
+                             ": find it and save a friendly chase as a draft reply.",
+                             "promises", f"chase:{q['to']}:{q['sent'][:10]}")
         self._save()
         return (f"Quotes gone quiet for over {days} days: " + "; ".join(quiet) + ".") if quiet else ""
 

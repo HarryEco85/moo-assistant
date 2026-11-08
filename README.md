@@ -111,7 +111,25 @@ Alerts pop up, are spoken (optional), and go to your phone if the phone link is 
 
 ## Moo's office
 
-Click **▦** at the top of her window (or say "show me the office") to see her background workers on a live board: inbox watch, meeting heads-ups, promise tracker, diary check, VH3, waiting-on-you, reminders and the phone link. Each card shows what it's doing, when it last checked and what it last flagged, with **Pause** and **Run now** buttons. A pulse runs along the wire while a worker is busy or has just raised something. The middle shows her status, this month's spend, and buttons to pause everything for an hour or switch proactive mode off.
+Click **▦** at the top of her window (or say "show me the office") to see her background workers on a live board: inbox watch, meeting heads-ups, promise tracker, diary check, VH3, waiting-on-you, reminders and the phone link. Each card shows what it's doing, when it last checked and what it last flagged, with **Pause** and **Run now** buttons. A pulse runs along the wire while a worker is busy or has just raised something. The middle shows her status and spend, anything waiting for your OK (with Approve and Reject buttons), the big job she's working on with each step ticking off, and today's numbers. Top right: pause everything for an hour, or switch proactive mode off.
+
+## Skills (jobs you teach her once)
+
+Six come ready to go: **Monday ops summary**, **Prep me for tomorrow**, **Inbox sweep**, **RAMS wording**, **Quote wording** and **Chase a quote**. Say the name, or something like it, and she follows the steps the same way every time.
+
+Make your own in Settings > Skills, or just tell her: "save that as a skill called Friday cash check", or "whenever I ask for the weekly numbers, do this...".
+
+## Approvals (she asks before acting on her own ideas)
+
+When Moo thinks something would help but you didn't ask for it, like drafting a reply to an urgent email, chasing a quote that's gone quiet or setting a reminder you mentioned, she queues it for your OK. Nothing happens until you approve it with the buttons in the chat, in the office view, or on your phone (Telegram buttons). You can also just say "approve it" or "reject that". Turn the suggestions off in Settings > Proactive.
+
+## Big jobs: plan, act, check
+
+For anything with several steps (an inbox sweep, prepping for tomorrow, a weekly summary) she writes a short plan, works through it with live progress in the office view, then checks her own work (drafts really saved, numbers adding up, nothing missed) before she reports back. You can give big jobs a smarter brain in Settings > Accounts > "Brain for big jobs".
+
+## Long memory
+
+Every conversation and every decision is kept in a searchable journal on your PC (journal.db in her data folder). Ask "what did we decide about the Tilbury quote?" or "what was that supplier I mentioned last week?" and she'll look it up and give you the date. She notes decisions automatically; turn that off in Settings > Proactive.
 
 ## Talking to Moo
 
