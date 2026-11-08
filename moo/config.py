@@ -60,7 +60,7 @@ DEFAULTS = {
     "speech_pitch": 0,  # Hz, -20 lower .. +20 higher
     "speech_volume": 100,  # percent
     # Listening: pause (seconds) that counts as "finished talking"
-    "listen_pause": 0.7,
+    "listen_pause": 0.6,
     # Offline voice file in the models folder (setup lets you audition them)
     "voice": "en_GB-cori-high",
     "voice_speed": 1.0,  # below 1 = faster, above 1 = slower
@@ -112,8 +112,19 @@ def load_settings() -> dict:
         except (json.JSONDecodeError, OSError):
             pass
     _apply_seed(settings)
+    _migrate(settings)
     save_settings(settings)
     return settings
+
+
+def _migrate(settings):
+    """Bring older settings files up to the quicker defaults, once."""
+    done = set(settings.get("_migrations", []))
+    if "fast_listen" not in done:
+        if settings.get("listen_pause") == 0.9:
+            settings["listen_pause"] = 0.6
+        done.add("fast_listen")
+    settings["_migrations"] = sorted(done)
 
 
 def _apply_seed(settings):

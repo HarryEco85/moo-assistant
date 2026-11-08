@@ -142,15 +142,16 @@ def _trim(audio, rate, gap=0.12):
     return np.concatenate([audio[a:b], np.zeros(int(rate * gap), dtype=np.float32)])
 
 
-def _phrases(sentences, min_len=70):
+def _phrases(sentences, min_len=70, first_len=28):
     """Join short sentences so they're spoken in one breath, with proper
-    intonation, instead of as separate clips ("Good afternoon Harry." + next)."""
-    buf = ""
+    intonation, instead of as separate clips. The first phrase only needs to
+    be short-ish, so she starts talking as soon as possible."""
+    buf, need = "", first_len
     for s in sentences:
         buf = f"{buf} {s}".strip() if buf else s
-        if len(buf) >= min_len:
+        if len(buf) >= need:
             yield buf
-            buf = ""
+            buf, need = "", min_len
     if buf:
         yield buf
 

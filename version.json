@@ -1,4 +1,4 @@
 {
-  "version": "1.8.2",
-  "notes": "Fixes the phone link: she now receives and answers Telegram messages."
+  "version": "1.8.3",
+  "notes": "Quicker replies: she starts speaking sooner and notices sooner when you've finished talking."
 }

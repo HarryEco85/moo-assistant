@@ -312,8 +312,11 @@ class MooApp:
                 target=self.mouth.speak_iter, name="speak",
                 args=(iter(sentences.get, None), first_word, lambda: self.ui.set_state("idle")))
             speaker.start()
+        def first_text(sent):
+            timing.setdefault("think", time.time() - t0)
+            sentences.put(sent)
         try:
-            reply = self.brain.ask(text, on_sentence=sentences.put if speaking else None)
+            reply = self.brain.ask(text, on_sentence=first_text if speaking else None)
         except Exception as e:
             log.exception("Brain failed")
             msg = str(e)
@@ -347,7 +350,8 @@ class MooApp:
             t = getattr(self, "last_timing", {})
             if t:
                 heard = f"heard {t['heard']:.1f}s · " if "heard" in t else ""
-                first = f"first word {t['first']:.1f}s" if "first" in t else f"reply {t['total']:.1f}s"
+                first = (f"first word {t['first']:.1f}s" if "first" in t else "") + \
+                    (f" (thinking {t['think']:.1f}s)" if "think" in t else "") if "first" in t else f"reply {t['total']:.1f}s"
                 parts.append(heard + first)
             if self.ears and self.ears.whisper_device:
                 parts.append(f"hearing on {self.ears.whisper_device}")
