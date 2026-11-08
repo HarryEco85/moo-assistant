@@ -17,6 +17,7 @@ _FONT_FILES = {
     "regular": ["segoeui.ttf", "DejaVuSans.ttf", "Arial.ttf"],
     "bold": ["segoeuib.ttf", "seguisb.ttf", "DejaVuSans-Bold.ttf", "Arialbd.ttf"],
     "light": ["segoeuil.ttf", "segoeui.ttf", "DejaVuSans.ttf"],
+    "semibold": ["seguisb.ttf", "segoeuib.ttf", "DejaVuSans-Bold.ttf"],
 }
 _FONT_DIRS = [os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
               "/usr/share/fonts/truetype/dejavu", "/Library/Fonts"]
