@@ -170,12 +170,13 @@ class SettingsWindow:
     # ---------- tabs ----------
     def _build_voice(self):
         t, s = self.tab_voice, self.s
-        self._label(t, "Voice", "British voices first. Add a free Azure key (Accounts tab) for more British voices.")
+        self._label(t, "Voice", "Male and female, British first. Kokoro runs on this PC (first use downloads "
+                    "120 MB, then it's free). ElevenLabs needs a key (Accounts tab) and sounds the most real.")
         row = tk.Frame(t, bg=SURFACE)
         row.pack(fill="x")
         self.voice_var = tk.StringVar(value="Loading voices…")
         self.voice_combo = ttk.Combobox(row, textvariable=self.voice_var, state="readonly", style="Moo.TCombobox",
-                                        font=(FONT, 10), height=18)
+                                        font=(FONT, 10), height=24)
         self.voice_combo.pack(side="left", fill="x", expand=True, ipady=3)
         self._button(row, "▶  Hear it", self.preview).pack(side="left", padx=(8, 0))
         threading.Thread(target=self._load_voices, daemon=True).start()
@@ -201,7 +202,8 @@ class SettingsWindow:
         self.voices = voices
         self.voice_combo.configure(values=[v["label"] for v in voices])
         eng = self.s.get("tts_engine", "natural")
-        cur = {"natural": self.s.get("natural_voice"), "azure": self.s.get("azure_voice"), "piper": ""}.get(eng)
+        cur = {"natural": self.s.get("natural_voice"), "azure": self.s.get("azure_voice"),
+               "kokoro": self.s.get("kokoro_voice"), "elevenlabs": self.s.get("elevenlabs_voice"), "piper": ""}.get(eng)
         match = next((v for v in voices if v["engine"] == eng and v["id"] == cur), voices[0] if voices else None)
         if match:
             self.voice_var.set(match["label"])
@@ -223,10 +225,10 @@ class SettingsWindow:
     @staticmethod
     def _apply_voice(target, v):
         target["tts_engine"] = v["engine"]
-        if v["engine"] == "natural":
-            target["natural_voice"] = v["id"]
-        elif v["engine"] == "azure":
-            target["azure_voice"] = v["id"]
+        key = {"natural": "natural_voice", "azure": "azure_voice", "kokoro": "kokoro_voice",
+               "elevenlabs": "elevenlabs_voice"}.get(v["engine"])
+        if key:
+            target[key] = v["id"]
 
     def _build_look(self):
         t, s = self.tab_look, self.s
@@ -321,6 +323,9 @@ class SettingsWindow:
         self.gmail_result = tk.Label(grow, text="", bg=SURFACE, fg=MUTED, font=(FONT, 9))
         self.gmail_result.pack(side="left", padx=10)
         tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
+        self._entry(t, "elevenlabs_key", "ElevenLabs API key (optional)", "", show="•",
+                    note=("Saved. Paste a new one to replace it, or type 'remove'." if get_secret("elevenlabs_key")
+                          else "elevenlabs.io > Profile > API keys. Unlocks the most lifelike voices."))
         self._entry(t, "azure_key", "Azure Speech key (optional)", "", show="•",
                     note=("Saved. Paste a new one to replace it, or type 'remove'." if get_azure_key()
                           else "Free tier unlocks more British voices. See the README for setup."))
@@ -393,7 +398,7 @@ class SettingsWindow:
         threading.Thread(target=run, daemon=True).start()
 
     def _store_secrets(self):
-        for key in ("gmail_app_password", "gcal_ics_url", "telegram_token"):
+        for key in ("gmail_app_password", "gcal_ics_url", "telegram_token", "elevenlabs_key"):
             v = self.vars[key].get().strip()
             if v:
                 set_secret(key, "" if v.lower() == "remove" else v)
@@ -430,7 +435,8 @@ class SettingsWindow:
             s["whisper_model_chosen"] = True  # user picked one: respect it even on a slow PC
 
         for k, w in self.vars.items():
-            if k in ("api_key", "azure_key", "autostart", "gmail_app_password", "gcal_ics_url", "telegram_token"):
+            if k in ("api_key", "azure_key", "autostart", "gmail_app_password", "gcal_ics_url", "telegram_token",
+                     "elevenlabs_key"):
                 continue
             if isinstance(w, tuple):  # combo
                 var, choices = w

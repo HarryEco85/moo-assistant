@@ -164,7 +164,11 @@ class MooApp:
             return
 
         def run():
+            from . import voice
             from .voice import Mouth
+            if trial_settings.get("tts_engine") == "kokoro" and voice._kokoro is None:
+                self.ui.add_message("sys", "Getting the Kokoro voices ready (first time only: a 120 MB download, "
+                                           "about a minute)…")
             self.mouth.stop()
             m = Mouth(trial_settings, piper=self.mouth.piper, load=False)
             m.say(f"Hello {user_name(self.settings)}, this is how I'd sound. "

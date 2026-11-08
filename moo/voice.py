@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import DATA_DIR, MODELS_DIR, get_azure_key, read_json, write_json
+from .config import DATA_DIR, MODELS_DIR, get_azure_key, get_secret, read_json, write_json
 
 log = logging.getLogger("moo")
 RATE = 16000
@@ -58,73 +58,159 @@ _SAY_AS = [
 ]
 
 
-ACCENTS = {
-    "en-GB": "British", "en-IE": "Irish", "en-AU": "Australian", "en-NZ": "New Zealand", "en-ZA": "South African",
-    "en-CA": "Canadian", "en-US": "American", "en-IN": "Indian", "en-SG": "Singaporean", "en-HK": "Hong Kong",
-    "en-KE": "Kenyan", "en-NG": "Nigerian", "en-PH": "Filipino", "en-TZ": "Tanzanian",
-}
-CHILD_VOICES = {"Maisie", "Ana"}  # child voices, left out of the list
+# Only clear, widely understood English accents are offered
+ACCENTS = {"en-GB": "British", "en-IE": "Irish", "en-US": "American", "en-AU": "Australian",
+           "en-CA": "Canadian", "en-NZ": "New Zealand"}
+CHILD_VOICES = {"Maisie", "Ana"}  # child voices, left out
 VOICES_CACHE = DATA_DIR / "voices.json"
+SOURCE_LABEL = {"kokoro": "Kokoro, on this PC", "natural": "Microsoft", "azure": "Azure", "elevenlabs": "ElevenLabs"}
 
-# Used if Moo can't fetch Microsoft's live list (e.g. offline at the time)
-_FALLBACK_FREE = ["en-GB-SoniaNeural", "en-GB-LibbyNeural", "en-IE-EmilyNeural", "en-AU-NatashaNeural",
-                  "en-NZ-MollyNeural", "en-ZA-LeahNeural", "en-CA-ClaraNeural", "en-US-AvaMultilingualNeural",
-                  "en-US-EmmaMultilingualNeural", "en-US-AriaNeural", "en-US-JennyNeural"]
+# Kokoro: free, runs on this PC (downloaded once, about 120 MB)
+KOKORO_FILES = {
+    "kokoro-v1.0.int8.onnx": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx",
+    "voices-v1.0.bin": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+}
+KOKORO_VOICES = [  # (id, name, accent, gender), best-sounding first within each group
+    ("bf_emma", "Emma", "British", "female"), ("bf_isabella", "Isabella", "British", "female"),
+    ("bf_alice", "Alice", "British", "female"), ("bf_lily", "Lily", "British", "female"),
+    ("bm_george", "George", "British", "male"), ("bm_fable", "Fable", "British", "male"),
+    ("bm_lewis", "Lewis", "British", "male"), ("bm_daniel", "Daniel", "British", "male"),
+    ("af_heart", "Heart", "American", "female"), ("af_bella", "Bella", "American", "female"),
+    ("af_nicole", "Nicole", "American", "female"), ("af_sarah", "Sarah", "American", "female"),
+    ("af_aoede", "Aoede", "American", "female"), ("af_kore", "Kore", "American", "female"),
+    ("am_michael", "Michael", "American", "male"), ("am_fenrir", "Fenrir", "American", "male"),
+    ("am_puck", "Puck", "American", "male"), ("am_eric", "Eric", "American", "male"),
+]
+
+_FALLBACK_FREE = [("en-GB-SoniaNeural", "Female"), ("en-GB-LibbyNeural", "Female"), ("en-GB-RyanNeural", "Male"),
+                  ("en-GB-ThomasNeural", "Male"), ("en-IE-EmilyNeural", "Female"), ("en-IE-ConnorNeural", "Male"),
+                  ("en-AU-NatashaNeural", "Female"), ("en-AU-WilliamNeural", "Male"), ("en-US-AriaNeural", "Female"),
+                  ("en-US-GuyNeural", "Male"), ("en-US-JennyNeural", "Female"), ("en-US-AndrewNeural", "Male")]
 
 
-def _voice_entry(engine, short_name):
+def _voice(engine, vid, name, accent, gender):
+    label = f"{name} · {accent} {gender} · {SOURCE_LABEL[engine]}"
+    return {"engine": engine, "id": vid, "label": label, "accent": accent, "gender": gender, "name": name}
+
+
+def _ms_voice(engine, short_name, gender):
     locale = short_name[:5]
+    if locale not in ACCENTS:
+        return None
     name = short_name[6:].replace("Neural", "")
     if name.endswith("Multilingual"):
         name = name[: -len("Multilingual")]
-    accent = ACCENTS.get(locale, locale)
-    label = f"{name} · {accent}" + (" · Azure" if engine == "azure" else "")
-    return {"engine": engine, "id": short_name, "label": label, "british": locale == "en-GB", "name": name}
+    if name in CHILD_VOICES:
+        return None
+    return _voice(engine, short_name, name, ACCENTS[locale], gender.lower())
 
 
 def list_voices(settings) -> list:
-    """Every adult English female voice available: free Microsoft voices, plus
-    Azure voices if an Azure Speech key is set. British first, then by accent."""
-    voices = {}
+    """Clean-English male and female voices from every source available:
+    Kokoro (free, local), Microsoft (free), plus Azure and ElevenLabs if keys are set."""
+    out = [_voice("kokoro", vid, n, a, g) for vid, n, a, g in KOKORO_VOICES]
     key = get_azure_key()
-    region = settings.get("azure_region", "uksouth").strip() or "uksouth"
     if key:
         try:
             import requests
+            region = settings.get("azure_region", "uksouth").strip() or "uksouth"
             r = requests.get(f"https://{region}.tts.speech.microsoft.com/cognitiveservices/voices/list",
                              headers={"Ocp-Apim-Subscription-Key": key}, timeout=15)
             r.raise_for_status()
-            for v in r.json():
-                if v.get("Locale", "").startswith("en-") and v.get("Gender") == "Female":
-                    e = _voice_entry("azure", v["ShortName"])
-                    if e["name"] not in CHILD_VOICES:
-                        voices[("azure", v["ShortName"])] = e
+            out += [v for v in (_ms_voice("azure", x["ShortName"], x.get("Gender", "")) for x in r.json()) if v]
         except Exception as e:
             log.warning("Couldn't list Azure voices: %s", e)
+    free = []
     try:
         import asyncio
         import edge_tts
-        live = asyncio.run(edge_tts.list_voices())
-        names = [v["ShortName"] for v in live if v.get("Locale", "").startswith("en-") and v.get("Gender") == "Female"]
+        free = [(v["ShortName"], v.get("Gender", "")) for v in asyncio.run(edge_tts.list_voices())]
     except Exception as e:
         log.warning("Couldn't list free voices: %s", e)
-        names = []
-    if not names:
         cached = read_json(VOICES_CACHE, [])
-        names = [c["id"] for c in cached if c.get("engine") == "natural"] or _FALLBACK_FREE
-    for n in names:
-        e = _voice_entry("natural", n)
-        if e["name"] not in CHILD_VOICES:
-            voices[("natural", n)] = e
-    out = sorted(voices.values(), key=lambda v: (not v["british"], v["engine"] != "azure",
-                                                 v["label"].split(" · ")[1], v["name"]))
+        free = [(c["id"], c["gender"]) for c in cached if c.get("engine") == "natural"] or _FALLBACK_FREE
+    out += [v for v in (_ms_voice("natural", n, g) for n, g in free) if v]
+    el_key = get_secret("elevenlabs_key")
+    if el_key:
+        out += _elevenlabs_voices(el_key)
     try:
-        write_json(VOICES_CACHE, out)
+        write_json(VOICES_CACHE, [v for v in out if v["engine"] == "natural"])
     except Exception:
         pass
-    out.append({"engine": "piper", "id": "", "label": "Offline voice (no internet needed)", "british": True,
-                "name": "Offline"})
+    accent_order = ["British", "Irish", "American", "Australian", "Canadian", "New Zealand"]
+    engine_order = ["elevenlabs", "kokoro", "azure", "natural"]
+    out.sort(key=lambda v: (engine_order.index(v["engine"]), accent_order.index(v["accent"])
+                            if v["accent"] in accent_order else 9, v["gender"] != "female"))
+    out.append({"engine": "piper", "id": "", "label": "Offline backup voice (robotic)", "accent": "British",
+                "gender": "female", "name": "Offline"})
     return out
+
+
+def _elevenlabs_voices(key) -> list:
+    import requests
+    try:
+        r = requests.get("https://api.elevenlabs.io/v1/voices", headers={"xi-api-key": key}, timeout=15)
+        r.raise_for_status()
+    except Exception as e:
+        log.warning("Couldn't list ElevenLabs voices: %s", e)
+        return []
+    out = []
+    names = {"british": "British", "english": "British", "irish": "Irish", "american": "American",
+             "australian": "Australian", "canadian": "Canadian"}
+    for v in r.json().get("voices", []):
+        labels = {k: str(val).lower() for k, val in (v.get("labels") or {}).items()}
+        accent = next((names[k] for k in names if k in labels.get("accent", "")), None)
+        if not accent:
+            continue
+        gender = labels.get("gender", "")
+        gender = "female" if "female" in gender else ("male" if "male" in gender else "voice")
+        out.append(_voice("elevenlabs", v["voice_id"], v.get("name", "Voice"), accent, gender))
+    return out
+
+
+_kokoro = None
+_kokoro_lock = threading.Lock()
+
+
+def _kokoro_model():
+    """Load Kokoro, downloading it the first time (about 120 MB)."""
+    global _kokoro
+    with _kokoro_lock:
+        if _kokoro is None:
+            import urllib.request
+            folder = MODELS_DIR / "kokoro"
+            folder.mkdir(parents=True, exist_ok=True)
+            for name, url in KOKORO_FILES.items():
+                dest = folder / name
+                if not dest.exists() or dest.stat().st_size < 1_000_000:
+                    log.info("Downloading %s", name)
+                    tmp = dest.with_suffix(dest.suffix + ".part")
+                    urllib.request.urlretrieve(url, tmp)
+                    tmp.replace(dest)
+            from kokoro_onnx import Kokoro
+            _kokoro = Kokoro(str(folder / "kokoro-v1.0.int8.onnx"), str(folder / "voices-v1.0.bin"))
+        return _kokoro
+
+
+def _kokoro_synth(text, voice, rate_pct):
+    speed = max(0.6, min(1.0 + rate_pct / 100, 1.6))
+    samples, rate = _kokoro_model().create(text, voice=voice, speed=speed,
+                                           lang="en-gb" if voice.startswith("b") else "en-us")
+    return np.asarray(samples, dtype=np.float32), rate
+
+
+def _elevenlabs_synth(text, voice_id, key, rate_pct):
+    import requests
+    import miniaudio
+    speed = max(0.7, min(1.0 + rate_pct / 100, 1.2))
+    r = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                      params={"output_format": "mp3_44100_128"},
+                      headers={"xi-api-key": key, "Content-Type": "application/json"},
+                      json={"text": text, "model_id": "eleven_flash_v2_5", "voice_settings": {"speed": speed}},
+                      timeout=30)
+    r.raise_for_status()
+    dec = miniaudio.decode(r.content, output_format=miniaudio.SampleFormat.SIGNED16, nchannels=1, sample_rate=44100)
+    return np.frombuffer(dec.samples, dtype=np.int16).astype(np.float32) / 32768.0, 44100
 
 
 def _trim(audio, rate, gap=0.12):
@@ -223,7 +309,7 @@ class Mouth:
 
     @property
     def voice(self):  # "can Moo speak at all?"
-        return True if self.settings.get("tts_engine", "natural") in ("natural", "azure") else self.piper
+        return True if self.settings.get("tts_engine", "natural") != "piper" else self.piper
 
     def _load_piper(self):
         name = self.settings.get("voice", "en_GB-cori-high")
@@ -273,6 +359,21 @@ class Mouth:
 
     def _synth_raw(self, sentence):
         engine = self.settings.get("tts_engine", "natural")
+        if engine == "elevenlabs":
+            try:
+                key = get_secret("elevenlabs_key")
+                if not key:
+                    raise RuntimeError("no ElevenLabs key set")
+                return _elevenlabs_synth(sentence, self.settings.get("elevenlabs_voice", ""), key, self._speed_pct())
+            except Exception as e:
+                log.warning("ElevenLabs voice unavailable (%s); trying the free voice.", e)
+                engine = "natural"
+        if engine == "kokoro":
+            try:
+                return _kokoro_synth(sentence, self.settings.get("kokoro_voice", "bf_emma"), self._speed_pct())
+            except Exception as e:
+                log.warning("Kokoro voice unavailable (%s); trying the free voice.", e)
+                engine = "natural"
         if engine == "azure":
             key = get_azure_key()
             try:

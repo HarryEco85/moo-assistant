@@ -130,6 +130,14 @@ Click **⚙** in her window. Everything applies when you click Save, with no rei
 | Accounts | Claude key, brain (Haiku or Sonnet), spending cap, Outlook, Azure voices |
 | System | Start with Windows, extra folders to search, open her folder, edit memories, clear the conversation |
 
+### Voices
+
+⚙ → **Voice** lists male and female voices in clear English accents (British, Irish, American, Australian, Canadian, New Zealand), with ▶ **Hear it** on each:
+
+- **Kokoro (on this PC):** free and very natural. The first time you pick one, it downloads about 120 MB, then works offline. On a PC without a graphics card it can add a second or so before she speaks.
+- **Microsoft:** free, quick, needs internet.
+- **ElevenLabs:** the most lifelike voices. Sign up at elevenlabs.io (there's a free monthly allowance; paid plans if you talk to her a lot), go to your profile → **API keys**, create one, and paste it into ⚙ → **Accounts** → **ElevenLabs API key**. Your ElevenLabs voices then appear in the list. Add more from their Voice Library and they'll show up too.
+
 ### More British voices (free Azure account, optional)
 
 The free Microsoft voices include two British women (Sonia and Libby) plus Irish, Australian, American and other accents. A free Azure Speech account adds roughly six more British voices, such as Hollie, Olivia, Abbi and Bella, in higher-quality audio. The free tier covers half a million characters a month, far more than Moo speaks.

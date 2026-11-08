@@ -23,3 +23,4 @@ icalendar>=6.0
 recurring-ical-events>=3.0
 tzdata>=2024.1
 av>=12
+kokoro-onnx>=0.4
