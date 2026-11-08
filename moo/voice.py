@@ -127,6 +127,34 @@ def list_voices(settings) -> list:
     return out
 
 
+def _trim(audio, rate, gap=0.12):
+    """Cut the dead air text-to-speech adds before and after each phrase, then
+    leave one short, natural gap so phrases flow into each other."""
+    if not len(audio):
+        return audio
+    level = np.abs(audio)
+    thresh = max(0.008, float(level.max()) * 0.02)
+    loud = np.nonzero(level > thresh)[0]
+    if not len(loud):
+        return audio
+    pad = int(rate * 0.03)
+    a, b = max(0, loud[0] - pad), min(len(audio), loud[-1] + pad)
+    return np.concatenate([audio[a:b], np.zeros(int(rate * gap), dtype=np.float32)])
+
+
+def _phrases(sentences, min_len=70):
+    """Join short sentences so they're spoken in one breath, with proper
+    intonation, instead of as separate clips ("Good afternoon Harry." + next)."""
+    buf = ""
+    for s in sentences:
+        buf = f"{buf} {s}".strip() if buf else s
+        if len(buf) >= min_len:
+            yield buf
+            buf = ""
+    if buf:
+        yield buf
+
+
 def _normalise(audio):
     """Even, clear volume: lift quiet voices and trim peaks to the same level."""
     peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
@@ -208,6 +236,14 @@ class Mouth:
         except Exception as e:
             log.exception("Couldn't load offline voice: %s", e)
 
+    def _name_flow(self, text):
+        """No comma before the user's name: "Morning, Harry." pauses awkwardly,
+        "Morning Harry." flows."""
+        name = (self.settings.get("user_name") or "").strip()
+        if name:
+            text = re.sub(rf",\s+({re.escape(name)})\b", r" \1", text, flags=re.I)
+        return text
+
     def _num(self, key, default):
         try:
             return float(self.settings.get(key, default))
@@ -225,8 +261,9 @@ class Mouth:
         return max(-50, min(pct, 100))
 
     def synth(self, sentence):
-        audio, rate = self._synth_raw(sentence)
+        audio, rate = self._synth_raw(self._name_flow(sentence))
         if audio is not None:
+            audio = _trim(audio, rate)
             if self.settings.get("clear_speech", True):
                 audio = _normalise(audio)
             vol = max(0.2, min(self._num("speech_volume", 100) / 100, 1.6))
@@ -285,7 +322,7 @@ class Mouth:
         ready = queue.Queue(maxsize=3)
 
         def producer():
-            for sentence in sentences:
+            for sentence in _phrases(sentences):
                 if stop.is_set():
                     continue  # keep draining the iterator
                 sentence = clean_for_speech(sentence)

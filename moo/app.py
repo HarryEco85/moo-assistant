@@ -114,7 +114,7 @@ class MooApp:
         self.ui.set_state("idle")
         hour = datetime.now().hour
         greeting = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
-        self.say(f"{greeting}, {user_name(self.settings)}. What would you like me to look at?",
+        self.say(f"{greeting} {user_name(self.settings)}. What would you like me to look at?",
                  show=True)
 
     def _register_hotkey(self):
