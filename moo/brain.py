@@ -15,6 +15,7 @@ from .config import get_api_key, user_name
 from .memory import History, Memory, Usage
 from .gmail import Gmail, GmailNotConfigured, google_calendar
 from .outlook import Outlook, OutlookNotConfigured
+from .outlook_desktop import OutlookDesktop
 
 log = logging.getLogger("moo")
 
@@ -42,7 +43,7 @@ Writing for {user} (emails, replies, rewrites, quote or RAMS wording):
 - For emails, the first time in a conversation, if Outlook works, glance at a few of their recent sent emails (list_emails folder sent, hours 168, limit 5) to match their tone and length.
 - Sign emails off with:
 {signoff}
-- NEVER read written pieces aloud. Put the finished text on the clipboard with copy_to_clipboard, and if it's an email, also save it with create_email_draft (as a reply when it answers an email you found). Then say one short line, e.g. "Done, it's in your Drafts and on your clipboard."
+- NEVER read written pieces aloud. Put the finished text on the clipboard with copy_to_clipboard, and if it's an email, also save it with create_email_draft (as a reply when it answers an email you found). Then say one short line, e.g. "Done, it's open on your screen and in Drafts." or "It's on your clipboard."
 - "This", "what I've copied", "the text I copied" means the clipboard: use read_clipboard.
 
 Tools:
@@ -161,7 +162,7 @@ class Brain:
         self.memory = Memory()
         self.history = History()
         self.usage = Usage()
-        self.outlook = Outlook(settings)
+        self.outlook = self._make_outlook()
         self.gmail = Gmail(settings)
         self._client = None
 
@@ -181,8 +182,8 @@ class Brain:
         if skipped:
             parts.append(f"(Not connected: {', '.join(skipped)}. Mention only if relevant.)")
         if not any(p.startswith("===") for p in parts):
-            return ("No email or calendar account is connected yet. Outlook needs IDs from the IT company; Gmail needs "
-                    "an app password. Both go in Settings > Accounts. Tell the user briefly.")
+            return ("No email or calendar account is connected yet. Outlook works through the classic Outlook app on "
+                    "this PC; Gmail needs an app password in Settings > Accounts. Tell the user briefly.")
         return "\n\n".join(parts)
 
     def _stream(self, model, system, tools, messages, splitter):
@@ -194,6 +195,11 @@ class Brain:
                 elif event.type == "text":
                     splitter.feed(event.text)
             return stream.get_final_message()
+
+    def _make_outlook(self):
+        if self.settings.get("outlook_mode", "desktop") == "online":
+            return Outlook(self.settings)
+        return OutlookDesktop(self.settings)
 
     def _about(self) -> str:
         about = (self.settings.get("about_you") or "").strip()
@@ -209,7 +215,7 @@ class Brain:
     def refresh(self):
         """Apply changed settings without restarting."""
         self._client = None
-        self.outlook = Outlook(self.settings)
+        self.outlook = self._make_outlook()
         self.gmail = Gmail(self.settings)
 
     def client(self):
@@ -294,8 +300,8 @@ class Brain:
             return ("Gmail isn't connected yet: add the Gmail address and app password in Settings > Accounts. "
                     "Tell the user this briefly.")
         except OutlookNotConfigured:
-            return ("Outlook isn't connected yet: Moo needs the app registration details from the IT company "
-                    "(see Settings). Tell the user this briefly.")
+            return ("Outlook isn't reachable: classic Outlook needs to be installed on this PC (or, for the online "
+                    "option, the IT company's app details in Settings). Tell the user this briefly.")
         except Exception as e:
             log.exception("Tool %s failed", name)
             return f"Tool error: {e}"
@@ -377,12 +383,13 @@ class Brain:
 
     def connect_outlook(self) -> str:
         try:
+            if isinstance(self.outlook, OutlookDesktop):
+                return self.outlook.test()
             self.outlook.token(interactive=True)
             return "Outlook is connected."
-        except GmailNotConfigured:
-            return ("Gmail isn't connected yet: add the Gmail address and app password in Settings > Accounts. "
-                    "Tell the user this briefly.")
         except OutlookNotConfigured:
-            return "Outlook needs the app details from your IT company first. They go in Settings."
+            if isinstance(self.outlook, OutlookDesktop):
+                return "I couldn't reach classic Outlook on this PC. Is it installed, with New Outlook switched off?"
+            return "Outlook online needs the app details from your IT company first. They go in Settings."
         except Exception as e:
             return str(e)

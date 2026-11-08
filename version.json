@@ -1,4 +1,4 @@
 {
-  "version": "1.6.0",
-  "notes": "Gmail and Google Calendar: she now reads both your Outlook and Gmail, and drafts replies in the right account."
+  "version": "1.7.0",
+  "notes": "Outlook now works through the classic Outlook app on your PC, with no IT setup. Drafts open on screen for you to check."
 }

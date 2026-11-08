@@ -288,15 +288,22 @@ class SettingsWindow:
                     else "Needed. From console.anthropic.com, starts sk-ant-")
         self._combo(t, "model", "Brain", MODEL_CHOICES, s.get("model", "claude-haiku-5-5"))
         self._entry(t, "monthly_budget_usd", "Monthly spending cap (US$)", str(s.get("monthly_budget_usd", 10)))
-        self._entry(t, "ms_client_id", "Outlook application (client) ID", s.get("ms_client_id", ""),
-                    note="From your IT company")
-        self._entry(t, "ms_tenant_id", "Outlook directory (tenant) ID", s.get("ms_tenant_id", ""))
-        self._check(t, "outlook_drafts", "Let her save email drafts in Outlook (never sends)",
+        tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
+        self._combo(t, "outlook_mode", "Outlook connection",
+                    [("desktop", "Classic Outlook app on this PC (no IT needed)"),
+                     ("online", "Microsoft 365 online (needs IT company setup)")],
+                    s.get("outlook_mode", "desktop"),
+                    note="Classic Outlook: she works through the Outlook app you're signed into. "
+                         "Online: only if your IT company has registered her (IDs below).")
+        self._check(t, "open_drafts", "Open drafts on screen after she saves them", s.get("open_drafts", True))
+        self._entry(t, "ms_client_id", "Online only: application (client) ID", s.get("ms_client_id", ""))
+        self._entry(t, "ms_tenant_id", "Online only: directory (tenant) ID", s.get("ms_tenant_id", ""))
+        self._check(t, "outlook_drafts", "Online only: let her save drafts (needs Mail.ReadWrite)",
                     s.get("outlook_drafts", True))
         self._check(t, "web_search", "Allow web search (about 1p per search)", s.get("web_search", True))
         row = tk.Frame(t, bg=SURFACE)
         row.pack(fill="x", pady=(8, 0))
-        self._button(row, "Connect Outlook", lambda: (self.save(close=False),
+        self._button(row, "Test Outlook", lambda: (self.save(close=False),
                                                       self.app.text_request("sign in to outlook"))).pack(side="left")
         tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
         self._entry(t, "gmail_address", "Gmail address", s.get("gmail_address", ""))

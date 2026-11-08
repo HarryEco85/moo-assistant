@@ -26,7 +26,13 @@ There's a monthly spending cap (default $10) in Settings. Moo stops thinking if 
 3. **Double-click `install.bat`.** It installs Python if needed, sets everything up, plays three British voices so you can pick one, asks for your API key (stored in Windows Credential Manager, not in a file), and puts **Moo** on your desktop.
 4. **Double-click Moo.** The first start takes a minute or two while speech recognition downloads (about 500 MB). After that she starts in seconds.
 
-## Connect Outlook (one email to your IT company)
+## Connect Outlook
+
+**Classic Outlook (the default, no setup):** Moo works through the Outlook app on your PC, using the account you're already signed into. Just have classic Outlook installed (top right of Outlook: the **New Outlook** toggle must be **off**). Check it's working in ⚙ → Accounts → **Test Outlook**. She reads mail and calendar, and saves drafts and opens them on screen for you to check and send. She never sends anything herself.
+
+### Optional: Microsoft 365 online (one email to your IT company)
+
+Only needed if you'd rather Moo didn't depend on the Outlook app. Set ⚙ → Accounts → **Outlook connection** to *Microsoft 365 online* once your IT company has done the following.
 
 Moo works without Outlook straight away (files, reminders, chat). For email and calendar, your IT company needs to register her in Microsoft Entra. Send them this:
 

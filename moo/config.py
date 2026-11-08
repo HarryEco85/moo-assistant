@@ -34,6 +34,9 @@ DEFAULTS = {
     # Extras
     "web_search": True,  # Claude's web search, about 1p per search
     "outlook_drafts": True,  # let Moo save email drafts (needs Mail.ReadWrite from IT)
+    # "desktop" = the classic Outlook app on this PC (no IT needed); "online" = Microsoft 365 via IT registration
+    "outlook_mode": "desktop",
+    "open_drafts": True,  # open Outlook drafts on screen after saving
     "gmail_address": "",  # Gmail via app password (password kept in Credential Manager)
     # Look
     "theme": "Ocean",
