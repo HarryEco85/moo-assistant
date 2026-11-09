@@ -213,7 +213,7 @@ def _elevenlabs_synth(text, voice_id, key, rate_pct):
     return np.frombuffer(dec.samples, dtype=np.int16).astype(np.float32) / 32768.0, 44100
 
 
-def _trim(audio, rate, gap=0.12):
+def _trim(audio, rate, gap=0.2):
     """Cut the dead air text-to-speech adds before and after each phrase, then
     leave one short, natural gap so phrases flow into each other."""
     if not len(audio):
@@ -228,7 +228,7 @@ def _trim(audio, rate, gap=0.12):
     return np.concatenate([audio[a:b], np.zeros(int(rate * gap), dtype=np.float32)])
 
 
-def _phrases(sentences, min_len=70, first_len=28):
+def _phrases(sentences, min_len=110, first_len=40):
     """Join short sentences so they're spoken in one breath, with proper
     intonation, instead of as separate clips. The first phrase only needs to
     be short-ish, so she starts talking as soon as possible."""
@@ -343,8 +343,6 @@ class Mouth:
     def _speed_pct(self) -> int:
         """speech_rate: percent, negative = slower, positive = quicker."""
         pct = int(self._num("speech_rate", 0))
-        if self.settings.get("clear_speech", True):
-            pct -= 7  # a touch slower, every word lands
         return max(-50, min(pct, 100))
 
     def synth(self, sentence):

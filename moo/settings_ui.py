@@ -262,7 +262,7 @@ class SettingsWindow:
                     note="She always turns the jokes off for bad news, complaints or anything urgent.")
         self._combo(t, "reply_length", "Reply length", LENGTH_CHOICES, s.get("reply_length", "normal"))
         self._label(t, "Personality and style",
-                    "Plain English, e.g. 'More dry humour. Call me boss. Football references now and then. "
+                    "Plain English, e.g. 'More dry humour. Football references now and then. "
                     "Never say \"certainly\".'")
         box = tk.Text(t, height=6, bg=SURFACE_HI, fg=TEXT, relief="flat", insertbackground=TEXT, font=(FONT, 10),
                       wrap="word", highlightthickness=0, bd=0, padx=8, pady=6)

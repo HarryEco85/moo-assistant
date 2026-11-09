@@ -168,6 +168,8 @@ class MooApp:
         """Called by the settings window after Save: everything takes effect now."""
         if self.brain:
             self.brain.refresh()
+            # a fresh start so she doesn't copy the old style or name from earlier replies
+            self.brain.history.clear()
         self.ui.later(self.ui.apply_appearance)
         if hotkey_changed:
             self._register_hotkey()
