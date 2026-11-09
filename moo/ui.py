@@ -1,8 +1,11 @@
-"""Moo's window: a calm, minimal design.
+"""Moo's window.
 
-A soft glowing orb shows what Moo is doing (blue = ready, cyan = listening,
-violet = thinking, and it moves with her voice when speaking). Below it,
-the conversation and a rounded input bar with the mic button.
+A glowing orb shows what Moo is doing (blue = ready, cyan = listening,
+violet = thinking, and it moves with her voice when speaking). Under it, an
+at-a-glance strip (next meeting, inbox, approvals, reminders), quick-start
+suggestions, the conversation, and a rounded input bar.
+
+The chrome is drawn with Pillow at double resolution, so edges are smooth.
 """
 import math
 import queue
@@ -10,7 +13,7 @@ import time
 import tkinter as tk
 
 import numpy as np
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 from .config import set_api_key
 from .themes import BG, FAINT, FONT, MUTED, OFFLINE, SURFACE, SURFACE_HI, TEXT, TEXT_SIZES, palette
@@ -87,26 +90,139 @@ class Orb:
         return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
 
 
+S = 2  # draw chrome at 2x, then smooth down
+INK, MUTED_RGB, FAINT_RGB = (232, 236, 243), (138, 147, 166), (88, 96, 114)
+GREEN, AMBER = (74, 222, 128), (251, 191, 36)
+COLUMN = 780  # the chat column never gets wider than this, so lines stay readable
+SUGGESTIONS = [("Summarise my day", "Summarise my day"), ("What's in my inbox?", "Anything important in my inbox?"),
+               ("Prep me for tomorrow", "Prep me for tomorrow"), ("Open the office", "__office__")]
+
+
+def _hex(c):
+    return tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def _mix(a, b, t):
+    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+
+def _font(kind, size):
+    from .cards import _font as f
+    return f(kind, size)  # cards fonts are already sized for 2x drawing
+
+
+def _fit(draw, text, font, width):
+    text = " ".join(str(text).split())
+    if draw.textlength(text, font=font) <= width:
+        return text
+    while text and draw.textlength(text + "…", font=font) > width:
+        text = text[:-1]
+    return text.rstrip() + "…"
+
+
+def _wrap(draw, text, font, width):
+    lines = []
+    for para in str(text).split("\n"):
+        line = ""
+        for word in para.split():
+            trial = f"{line} {word}".strip()
+            if draw.textlength(trial, font=font) <= width or not line:
+                line = trial
+            else:
+                lines.append(line)
+                line = word
+        lines.append(line)
+    return lines
+
+
+def _canvas(w, h, bg):
+    img = Image.new("RGB", (int(w * S), int(h * S)), bg)
+    return img, ImageDraw.Draw(img)
+
+
+def _done(img):
+    return img.resize((img.width // S, img.height // S), Image.LANCZOS)
+
+
+def _icon(d, kind, cx, cy, s, col):
+    """Small line icons, drawn at 2x."""
+    w = max(2, int(s * 0.1))
+    if kind == "gear":
+        r1, r2 = s * 0.30, s * 0.42
+        for k in range(8):
+            a = k * math.pi / 4
+            d.line([(cx + math.cos(a) * r1, cy + math.sin(a) * r1), (cx + math.cos(a) * r2, cy + math.sin(a) * r2)],
+                   fill=col, width=int(w * 1.6))
+        d.ellipse([cx - r1, cy - r1, cx + r1, cy + r1], outline=col, width=w)
+        d.ellipse([cx - s * 0.12, cy - s * 0.12, cx + s * 0.12, cy + s * 0.12], outline=col, width=w)
+    elif kind == "grid":
+        g, q = s * 0.08, s * 0.34
+        for ox in (-1, 1):
+            for oy in (-1, 1):
+                x0 = cx + (g if ox > 0 else -g - q)
+                y0 = cy + (g if oy > 0 else -g - q)
+                d.rounded_rectangle([x0, y0, x0 + q, y0 + q], radius=s * 0.07, outline=col, width=w)
+    elif kind == "stop":
+        q = s * 0.3
+        d.rounded_rectangle([cx - q, cy - q, cx + q, cy + q], radius=s * 0.08, fill=col)
+    elif kind == "mic":
+        d.rounded_rectangle([cx - s * 0.13, cy - s * 0.38, cx + s * 0.13, cy + s * 0.08], radius=s * 0.13, fill=col)
+        d.arc([cx - s * 0.26, cy - s * 0.2, cx + s * 0.26, cy + s * 0.24], 0, 180, fill=col, width=w)
+        d.line([(cx, cy + s * 0.24), (cx, cy + s * 0.38)], fill=col, width=w)
+        d.line([(cx - s * 0.14, cy + s * 0.38), (cx + s * 0.14, cy + s * 0.38)], fill=col, width=w)
+    elif kind == "send":
+        d.polygon([(cx - s * 0.3, cy - s * 0.32), (cx + s * 0.36, cy), (cx - s * 0.3, cy + s * 0.32),
+                   (cx - s * 0.18, cy)], fill=col)
+    elif kind == "calendar":
+        d.rounded_rectangle([cx - s * 0.32, cy - s * 0.26, cx + s * 0.32, cy + s * 0.32], radius=s * 0.06,
+                            outline=col, width=w)
+        d.line([(cx - s * 0.32, cy - s * 0.1), (cx + s * 0.32, cy - s * 0.1)], fill=col, width=w)
+        for ox in (-0.14, 0.14):
+            d.line([(cx + s * ox, cy - s * 0.36), (cx + s * ox, cy - s * 0.2)], fill=col, width=w)
+    elif kind == "mail":
+        d.rounded_rectangle([cx - s * 0.34, cy - s * 0.24, cx + s * 0.34, cy + s * 0.24], radius=s * 0.05,
+                            outline=col, width=w)
+        d.line([(cx - s * 0.3, cy - s * 0.2), (cx, cy + s * 0.04), (cx + s * 0.3, cy - s * 0.2)], fill=col,
+               width=w, joint="curve")
+    elif kind == "check":
+        d.ellipse([cx - s * 0.32, cy - s * 0.32, cx + s * 0.32, cy + s * 0.32], outline=col, width=w)
+        d.line([(cx - s * 0.13, cy), (cx - s * 0.03, cy + s * 0.11), (cx + s * 0.15, cy - s * 0.1)], fill=col,
+               width=w, joint="curve")
+    elif kind == "bell":
+        d.chord([cx - s * 0.24, cy - s * 0.32, cx + s * 0.24, cy + s * 0.22], 180, 360, outline=col, width=w)
+        d.line([(cx - s * 0.24, cy - s * 0.05), (cx - s * 0.28, cy + s * 0.18), (cx + s * 0.28, cy + s * 0.18),
+                (cx + s * 0.24, cy - s * 0.05)], fill=col, width=w, joint="curve")
+        d.ellipse([cx - s * 0.06, cy + s * 0.22, cx + s * 0.06, cy + s * 0.34], fill=col)
+
+
 class MooWindow:
     def __init__(self, app):
         self.app = app
         self.root = tk.Tk()
         self.root.title("Moo")
-        self.root.geometry("460x760")
-        self.root.minsize(380, 560)
+        self.root.geometry("520x820")
+        self.root.minsize(400, 600)
         self.root.configure(bg=BG)
         self.calls = queue.Queue()
         self.state = "offline"
+        self.detail = ""
         self.t0 = time.time()
-        self.orb = Orb(240)
+        self.orb = Orb(220)
         self._orb_img = None
         self._has_placeholder = False
         self._card_images = []
-        self.chat_width = 420
+        self._imgs = {}  # keep PhotoImages alive
+        self.chat_width = 480
+        self._hover = None
+        self._focus = False
+        self._chatted = False
+        self._glance_sig = None
+        self._size = (0, 0)
         self._build()
         self.apply_appearance()
         self.root.after(33, self._animate)
         self.root.after(50, self._pump)
+        self.root.after(400, self._refresh_glance)
         self.root.protocol("WM_DELETE_WINDOW", self.app.shutdown)
         self._dark_title_bar()
 
@@ -128,38 +244,120 @@ class MooWindow:
         try:
             while True:
                 fn, args = self.calls.get_nowait()
-                fn(*args)
+                try:
+                    fn(*args)
+                except Exception:
+                    import logging
+                    logging.getLogger("moo").exception("UI update failed")
         except queue.Empty:
             pass
         self.root.after(50, self._pump)
+
+    def _keep(self, key, pil):
+        self._imgs[key] = ImageTk.PhotoImage(pil)
+        return self._imgs[key]
+
+    def _accent(self):
+        return _hex(palette(self.app.settings)["idle"][0])
 
     def set_state(self, state, detail=""):
         self.later(self._set_state, state, detail)
 
     def _set_state(self, state, detail):
-        self.state = state
+        self.state, self.detail = state, detail
         label = detail or LABELS.get(state, state)
         self.status.configure(text=label, fg=TEXT if state in ("listening", "thinking", "speaking") else MUTED)
+        self._draw_chip()
         self._draw_input()
+
+    # ---------- conversation ----------
+    def _stamp(self, who):
+        name = self.app.settings.get("assistant_name", "Moo") or "Moo"
+        if who == "Moo":
+            self.chat.insert("end", f"{name}  ", "who_moo")
+            self.chat.insert("end", time.strftime("%H:%M") + "\n", "when")
+
+    def _hide_suggestions(self):
+        if not self._chatted:
+            self._chatted = True
+            self.chips.pack_forget()
 
     def add_message(self, who, text):
         self.later(self._add_message, who, text)
 
     def _add_message(self, who, text):
         self.chat.configure(state="normal")
-        tag = {"You": "you", "Moo": "moo"}.get(who, "sys")
-        self.chat.insert("end", text.strip() + "\n", tag)
+        text = text.strip()
+        if who == "You":
+            self._hide_suggestions()
+            self.chat.insert("end", " ", "you")
+            self.chat.image_create("end", image=self._bubble(text), pady=2)
+            self.chat.insert("end", "\n", "you")
+        elif who == "Moo":
+            self._stamp("Moo")
+            self.chat.insert("end", text + "\n", "moo")
+        else:
+            self.chat.insert("end", text + "\n", "sys")
         self.chat.insert("end", "\n", "gap")
         self.chat.configure(state="disabled")
         self.chat.see("end")
 
+    def _bubble(self, text):
+        """Your message as a rounded bubble on the right."""
+        big, small = TEXT_SIZES.get(self.app.settings.get("text_size", "Medium"), TEXT_SIZES["Medium"])
+        f = _font("regular", small + 0.5)
+        maxw = max(160, min(int(self._column() * 0.72), 520))
+        probe = ImageDraw.Draw(Image.new("RGB", (4, 4)))
+        lines = _wrap(probe, text, f, (maxw - 32) * S)
+        lh = (small + 9) * S
+        tw = max(probe.textlength(x, font=f) for x in lines) / S
+        w, h = int(tw + 32), int(len(lines) * lh / S + 20)
+        acc = self._accent()
+        img, d = _canvas(w, h, _hex(BG))
+        d.rounded_rectangle([0, 0, w * S - 1, h * S - 1], radius=16 * S, fill=_mix(_hex(SURFACE_HI), acc, 0.18))
+        y = 10 * S
+        for ln in lines:
+            d.text((16 * S, y), ln, font=f, fill=INK)
+            y += lh
+        photo = ImageTk.PhotoImage(_done(img))
+        self._card_images.append(photo)
+        self._card_images = self._card_images[-80:]
+        return photo
+
     def add_action(self, label, callback):
         self.later(self._add_action, label, callback)
 
+    def _pill_button(self, parent, text, primary, width=None):
+        acc = self._accent()
+        f = _font("semibold", 9.5)
+        probe = ImageDraw.Draw(Image.new("RGB", (4, 4)))
+        w = width or int(probe.textlength(text, font=f) / S + 30)
+        h = 30
+
+        def make(hover):
+            img, d = _canvas(w, h, _hex(BG))
+            if primary:
+                fill, ink = (_mix(acc, (255, 255, 255), 0.15) if hover else acc), _hex(BG)
+            else:
+                fill, ink = (_mix(_hex(SURFACE_HI), (255, 255, 255), 0.08 if hover else 0)), INK
+            d.rounded_rectangle([0, 0, w * S - 1, h * S - 1], radius=h / 2 * S, fill=fill)
+            d.text((w / 2 * S, h / 2 * S), text, font=f, fill=ink, anchor="mm")
+            return ImageTk.PhotoImage(_done(img))
+        normal, hover = make(False), make(True)
+        b = tk.Label(parent, image=normal, bg=BG, bd=0, cursor="hand2")
+        b._imgs = (normal, hover)
+        b.bind("<Enter>", lambda e: b.configure(image=hover) if b.cget("cursor") else None)
+        b.bind("<Leave>", lambda e: b.configure(image=normal))
+        return b
+
     def _add_action(self, label, callback):
-        btn = tk.Label(self.chat, text=label, bg=palette(self.app.settings)["idle"][0], fg=BG,
-                       font=(FONT, 10, "bold"), padx=14, pady=6, cursor="hand2")
-        btn.bind("<Button-1>", lambda e: (btn.configure(text="Updating…"), callback()))
+        btn = self._pill_button(self.chat, label, True)
+
+        def go(_e):
+            btn.unbind("<Button-1>")
+            btn.configure(cursor="")
+            callback()
+        btn.bind("<Button-1>", go)
         self.chat.configure(state="normal")
         self.chat.insert("end", " ", "sys")
         self.chat.window_create("end", window=btn)
@@ -172,22 +370,20 @@ class MooWindow:
 
     def _add_choice(self, question, options):
         self.chat.configure(state="normal")
-        self.chat.insert("end", question + "\n", "sys")
+        self.chat.insert("end", question + "\n", "choice_q")
         buttons = []
         for i, (label, cb) in enumerate(options):
-            b = tk.Label(self.chat, text=label, font=(FONT, 9, "bold" if i == 0 else "normal"), padx=12, pady=4,
-                         bg=palette(self.app.settings)["idle"][0] if i == 0 else SURFACE_HI,
-                         fg=BG if i == 0 else TEXT, cursor="hand2")
+            b = self._pill_button(self.chat, label, i == 0)
             buttons.append(b)
 
             def click(_e, cb=cb):
                 for x in buttons:
-                    x.configure(state="disabled", cursor="")
+                    x.configure(cursor="")
                     x.unbind("<Button-1>")
                 cb()
             b.bind("<Button-1>", click)
-            self.chat.insert("end", " ", "sys")
-            self.chat.window_create("end", window=b)
+            self.chat.insert("end", " " if i else "", "choice")
+            self.chat.window_create("end", window=b, padx=3)
         self.chat.insert("end", "\n\n", "gap")
         self.chat.configure(state="disabled")
         self.chat.see("end")
@@ -198,7 +394,7 @@ class MooWindow:
     def _add_card(self, pil_image):
         photo = ImageTk.PhotoImage(pil_image)
         self._card_images.append(photo)  # keep a reference or Tk drops the picture
-        self._card_images = self._card_images[-30:]
+        self._card_images = self._card_images[-80:]
         self.chat.configure(state="normal")
         self.chat.insert("end", " ", "card")
         self.chat.image_create("end", image=photo, padx=0, pady=4)
@@ -222,56 +418,215 @@ class MooWindow:
 
     # ---------- layout ----------
     def _build(self):
+        # header: name, status chip, icon buttons
         header = tk.Frame(self.root, bg=BG)
-        header.pack(side="top", fill="x", padx=22, pady=(16, 0))
-        self.title_label = tk.Label(header, text="", bg=BG, fg=TEXT, font=(FONT, 15, "bold"))
+        header.pack(side="top", fill="x", padx=20, pady=(14, 0))
+        self.title_label = tk.Label(header, text="", bg=BG, fg=TEXT, font=(FONT, 16, "bold"))
         self.title_label.pack(side="left")
-        for symbol, cmd, tip in (("⚙", self.open_settings, "Settings"), ("▦", self.open_office, "Office"),
-                                 ("◼", self.app.stop_speaking, "Stop")):
-            b = tk.Label(header, text=symbol, bg=BG, fg=FAINT, font=("Segoe UI Symbol", 13), cursor="hand2")
-            b.pack(side="right", padx=(14, 0))
+        self.chip = tk.Label(header, bg=BG, bd=0)
+        self.chip.pack(side="left", padx=(12, 0), pady=(3, 0))
+        for kind, cmd in (("gear", self.open_settings), ("grid", self.open_office), ("stop", self.app.stop_speaking)):
+            b = tk.Label(header, bg=BG, bd=0, cursor="hand2")
+            b.pack(side="right", padx=(6, 0))
+            normal, hover = self._icon_button(kind, False), self._icon_button(kind, True)
+            b._imgs = (normal, hover)
+            b.configure(image=normal)
             b.bind("<Button-1>", lambda e, c=cmd: c())
-            b.bind("<Enter>", lambda e, w=b: w.configure(fg=TEXT))
-            b.bind("<Leave>", lambda e, w=b: w.configure(fg=FAINT))
+            b.bind("<Enter>", lambda e, w=b: w.configure(image=w._imgs[1]))
+            b.bind("<Leave>", lambda e, w=b: w.configure(image=w._imgs[0]))
 
         # bottom first, so it is never pushed off-screen
         self.footer = tk.Label(self.root, text="", bg=BG, fg=FAINT, font=(FONT, 8))
         self.footer.pack(side="bottom", pady=(0, 10))
         self.hint = tk.Label(self.root, text="", bg=BG, fg=FAINT, font=(FONT, 9))
-        self.hint.pack(side="bottom", pady=(2, 2))
-        self.input = tk.Canvas(self.root, height=56, bg=BG, highlightthickness=0)
-        self.input.pack(side="bottom", fill="x", padx=18, pady=(8, 0))
+        self.hint.pack(side="bottom", pady=(2, 0))
+        self.input = tk.Canvas(self.root, height=64, bg=BG, highlightthickness=0)
+        self.input.pack(side="bottom", fill="x", padx=18, pady=(6, 0))
         self.entry = tk.Entry(self.input, bg=SURFACE, fg=TEXT, relief="flat", bd=0, insertbackground=TEXT,
                               font=(FONT, 11), highlightthickness=0)
         self.entry.bind("<Return>", self._send)
-        self.entry.bind("<FocusIn>", lambda e: self._placeholder(False))
-        self.entry.bind("<FocusOut>", lambda e: self._placeholder(True))
+        self.entry.bind("<FocusIn>", lambda e: (self._placeholder(False), self._set_focus(True)))
+        self.entry.bind("<FocusOut>", lambda e: (self._placeholder(True), self._set_focus(False)))
+        self.entry.bind("<KeyRelease>", lambda e: self._draw_input())
         self._entry_win = self.input.create_window(0, 0, window=self.entry, anchor="w")
+        self._pill_item = self.input.create_image(0, 0, anchor="nw")
+        self.input.tag_lower(self._pill_item)
         self.input.bind("<Configure>", lambda e: self._draw_input())
-        self.input.tag_bind("mic", "<Button-1>", lambda e: self.app.voice_request())
-        self.input.tag_bind("mic", "<Enter>", lambda e: self.input.configure(cursor="hand2"))
-        self.input.tag_bind("mic", "<Leave>", lambda e: self.input.configure(cursor=""))
+        self.input.bind("<Button-1>", self._input_click)
+        self.input.bind("<Motion>", self._input_motion)
         self._placeholder(True)
 
+        # orb and status
         self.canvas = tk.Label(self.root, bg=BG, bd=0)
-        self.canvas.pack(side="top", pady=(4, 0))
+        self.canvas.pack(side="top", pady=(0, 0))
         self.status = tk.Label(self.root, text="Starting up", bg=BG, fg=MUTED, font=(FONT, 10))
-        self.status.pack(side="top", pady=(0, 10))
+        self.status.pack(side="top", pady=(0, 12))
 
-        self.chat = tk.Text(self.root, bg=BG, fg=TEXT, wrap="word", relief="flat", bd=0, padx=24, pady=6,
+        # at-a-glance cards and suggestions
+        self.glance = tk.Frame(self.root, bg=BG)
+        self.glance.pack(side="top", pady=(0, 10))
+        self.chips = tk.Frame(self.root, bg=BG)
+        self.chips.pack(side="top", pady=(0, 6))
+        self._build_suggestions()
+
+        self.chat = tk.Text(self.root, bg=BG, fg=TEXT, wrap="word", relief="flat", bd=0, padx=24, pady=8,
                             font=(FONT, 11), state="disabled", cursor="arrow", highlightthickness=0,
                             spacing1=1, spacing3=1, insertbackground=BG, selectbackground=SURFACE_HI)
         self.chat.pack(side="top", fill="both", expand=True)
-        self.chat.bind("<Configure>", lambda e: setattr(self, "chat_width", e.width))
-        self.chat.tag_configure("moo", foreground=TEXT, font=(FONT, 12), rmargin=40, spacing2=3)
-        self.chat.tag_configure("you", foreground=MUTED, font=(FONT, 11), justify="right", lmargin1=70, lmargin2=70)
+        self.chat.bind("<Configure>", self._on_chat_resize)
+        self.root.bind("<Configure>", self._on_root_resize)
+        self.chat.tag_configure("moo", foreground=TEXT, font=(FONT, 12), rmargin=30, spacing2=4)
+        self.chat.tag_configure("who_moo", foreground=palette(self.app.settings)["idle"][0], font=(FONT, 9, "bold"))
+        self.chat.tag_configure("when", foreground=FAINT, font=(FONT, 8))
+        self.chat.tag_configure("you", justify="right")
         self.chat.tag_configure("sys", foreground=FAINT, font=(FONT, 9), justify="center", lmargin1=30, lmargin2=30,
                                 rmargin=30)
+        self.chat.tag_configure("choice_q", foreground=MUTED, font=(FONT, 10), spacing3=6)
+        self.chat.tag_configure("choice")
         self.chat.tag_configure("gap", font=(FONT, 6))
         self.chat.tag_configure("draft_label", foreground=FAINT, font=(FONT, 8, "bold"), lmargin1=12, spacing1=4)
         self.chat.tag_configure("draft", foreground=TEXT, background=SURFACE, font=(FONT, 10), lmargin1=12,
                                 lmargin2=12, rmargin=24, spacing1=2, spacing3=2)
 
+    def _icon_button(self, kind, hover):
+        size = 34
+        img, d = _canvas(size, size, _hex(BG))
+        if hover:
+            d.rounded_rectangle([0, 0, size * S - 1, size * S - 1], radius=10 * S, fill=_hex(SURFACE_HI))
+        col = INK if hover else MUTED_RGB
+        if kind == "stop" and hover:
+            col = (248, 113, 113)
+        _icon(d, kind, size / 2 * S, size / 2 * S, 18 * S, col)
+        return ImageTk.PhotoImage(_done(img))
+
+    def _draw_chip(self):
+        state = self.state
+        acc = self._accent()
+        colour = {"idle": GREEN, "offline": FAINT_RGB, "listening": _hex(palette(self.app.settings)["listening"][0]),
+                  "thinking": _hex(palette(self.app.settings)["thinking"][0]), "speaking": acc}.get(state, acc)
+        text = {"idle": "Online", "offline": "Starting", "listening": "Listening", "thinking": "Thinking",
+                "speaking": "Speaking"}.get(state, state.title())
+        f = _font("semibold", 8.5)
+        probe = ImageDraw.Draw(Image.new("RGB", (4, 4)))
+        w, h = int(probe.textlength(text, font=f) / S + 30), 22
+        img, d = _canvas(w, h, _hex(BG))
+        d.rounded_rectangle([0, 0, w * S - 1, h * S - 1], radius=h / 2 * S, fill=_mix(_hex(BG), colour, 0.16))
+        d.ellipse([9 * S, (h / 2 - 3.5) * S, 16 * S, (h / 2 + 3.5) * S], fill=colour)
+        d.text((21 * S, h / 2 * S), text, font=f, fill=colour, anchor="lm")
+        self.chip.configure(image=self._keep("chip", _done(img)))
+
+    def _build_suggestions(self):
+        for w in self.chips.winfo_children():
+            w.destroy()
+        for label, prompt in SUGGESTIONS:
+            b = self._pill_button(self.chips, label, False)
+            b.pack(side="left", padx=4)
+            b.bind("<Button-1>", lambda e, p=prompt: self._suggest(p))
+
+    def _suggest(self, prompt):
+        if prompt == "__office__":
+            self.open_office()
+        else:
+            self.app.text_request(prompt)
+
+    # ---------- at a glance ----------
+    def _glance_items(self):
+        app = self.app
+        w = getattr(app, "watcher", None)
+        stats = w.stats if w else {}
+        meet = stats.get("meetings", {}).get("text") or "Checking your diary…"
+        meet = meet.replace("Next: ", "")
+        email = stats.get("email", {})
+        inbox = email.get("alert") if email.get("alert") and time.time() - email.get("alert_at", 0) < 6 * 3600 else None
+        if not inbox:
+            txt = email.get("text") or "Watching for new emails"
+            import re as _re
+            m = _re.search(r"(\d+) new", txt)
+            inbox = "Nothing urgent" if m else txt
+        pending = len(app.approvals.pending()) if getattr(app, "approvals", None) else 0
+        try:
+            rem = app.reminders.list() if getattr(app, "reminders", None) else []
+        except Exception:
+            rem = []
+        nxt = rem[0] if rem else None
+        rem_txt = f"{nxt['due'][11:16]} · {nxt['text']}" if nxt else "None set"
+        return [("calendar", "NEXT UP", meet, "What's my diary looking like today?"),
+                ("mail", "INBOX", inbox, "Anything important in my inbox?"),
+                ("check", "NEEDS YOUR OK", f"{pending} waiting" if pending else "All clear", "__office__"),
+                ("bell", "REMINDERS", rem_txt, "What reminders have I got?")]
+
+    def _refresh_glance(self):
+        try:
+            self._draw_glance()
+        except Exception:
+            import logging
+            logging.getLogger("moo").exception("Glance strip failed")
+        self.root.after(20000, self._refresh_glance)
+
+    def _draw_glance(self, force=False):
+        items = self._glance_items()
+        col = self._column()
+        n = 4 if col >= 640 else 2
+        items = items[:n]
+        gap = 10
+        cw = int(min(200, (col - gap * (n - 1)) / n))
+        sig = (tuple(items), cw, self.app.settings.get("theme"), self._hover_card)
+        if sig == self._glance_sig and not force:
+            return
+        self._glance_sig = sig
+        for wdg in self.glance.winfo_children():
+            wdg.destroy()
+        acc = self._accent()
+        for i, (icon, title, value, prompt) in enumerate(items):
+            h = 62
+            img, d = _canvas(cw, h, _hex(BG))
+            hover = self._hover_card == i
+            fill = _mix(_hex(SURFACE), (255, 255, 255), 0.03 if hover else 0)
+            d.rounded_rectangle([0, 0, cw * S - 1, h * S - 1], radius=14 * S, fill=fill,
+                                outline=_mix(_hex(BG), acc, 0.5) if hover else _mix(_hex(BG), (255, 255, 255), 0.09),
+                                width=S)
+            d.rounded_rectangle([12 * S, 15 * S, 44 * S, 47 * S], radius=9 * S, fill=_mix(_hex(SURFACE), acc, 0.2))
+            _icon(d, icon, 28 * S, 31 * S, 20 * S, _mix(acc, (255, 255, 255), 0.25))
+            d.text((54 * S, 22 * S), title, font=_font("semibold", 7.5), fill=FAINT_RGB, anchor="lm")
+            fv = _font("semibold", 9.5)
+            d.text((54 * S, 41 * S), _fit(d, value, fv, (cw - 64) * S), font=fv, fill=INK, anchor="lm")
+            lab = tk.Label(self.glance, image=self._keep(f"glance{i}", _done(img)), bg=BG, bd=0, cursor="hand2")
+            lab.pack(side="left", padx=(0 if i == 0 else gap, 0))
+            lab.bind("<Button-1>", lambda e, p=prompt: self._suggest(p))
+            lab.bind("<Enter>", lambda e, k=i: self._set_hover_card(k))
+            lab.bind("<Leave>", lambda e: self._set_hover_card(None))
+
+    _hover_card = None
+
+    def _set_hover_card(self, k):
+        self._hover_card = k
+        self._draw_glance()
+
+    # ---------- sizing ----------
+    def _column(self):
+        return max(320, min(self.root.winfo_width() - 40, COLUMN))
+
+    def _on_chat_resize(self, e):
+        pad = max(22, int((e.width - COLUMN) / 2))
+        if abs(pad - int(str(self.chat.cget("padx")))) > 2:
+            self.chat.configure(padx=pad)
+        self.chat_width = min(e.width - 2 * pad, COLUMN)
+
+    def _on_root_resize(self, e):
+        if e.widget is not self.root:
+            return
+        size = (e.width, e.height)
+        if abs(size[0] - self._size[0]) < 8 and abs(size[1] - self._size[1]) < 8:
+            return
+        self._size = size
+        orb = 280 if e.height >= 1000 else (220 if e.height >= 860 else (180 if e.height >= 700 else 140))
+        side = max(18, int((e.width - COLUMN - 40) / 2))
+        self.input.pack_configure(padx=side)
+        if orb != self.orb.size:
+            self.orb = Orb(orb)
+        self.root.after(60, self._draw_glance)
+
+    # ---------- input ----------
     def _placeholder(self, show):
         if show and not self.entry.get():
             self.entry.insert(0, f"Ask {self.app.settings.get('assistant_name', 'Moo') or 'Moo'} anything")
@@ -282,32 +637,74 @@ class MooWindow:
             self.entry.configure(fg=TEXT)
             self._has_placeholder = False
 
+    def _set_focus(self, on):
+        self._focus = on
+        self._draw_input()
+
+    def _buttons(self, w, h):
+        r = (h - 16) / 2
+        mic = (w - 8 - r, h / 2, r - 4)
+        send = (w - 8 - 2 * r - 10 - r + 6, h / 2, r - 8)
+        return mic, send
+
+    def _typing(self):
+        return bool(self.entry.get().strip()) and not self._has_placeholder
+
+    def _input_click(self, e):
+        w, h = max(self.input.winfo_width(), 200), 64
+        mic, send = self._buttons(w, h)
+        if (e.x - mic[0]) ** 2 + (e.y - mic[1]) ** 2 <= (mic[2] + 3) ** 2:
+            self.app.voice_request()
+        elif self._typing() and (e.x - send[0]) ** 2 + (e.y - send[1]) ** 2 <= (send[2] + 4) ** 2:
+            self._send()
+        else:
+            self.entry.focus_set()
+
+    def _input_motion(self, e):
+        w, h = max(self.input.winfo_width(), 200), 64
+        mic, send = self._buttons(w, h)
+        over = None
+        if (e.x - mic[0]) ** 2 + (e.y - mic[1]) ** 2 <= (mic[2] + 3) ** 2:
+            over = "mic"
+        elif self._typing() and (e.x - send[0]) ** 2 + (e.y - send[1]) ** 2 <= (send[2] + 4) ** 2:
+            over = "send"
+        if over != self._hover:
+            self._hover = over
+            self.input.configure(cursor="hand2" if over else "")
+            self._draw_input()
+
     def _draw_input(self):
         c = self.input
-        c.delete("pill")
-        w, h = max(c.winfo_width(), 200), 56
-        y0, y1, r = 6, h - 6, (h - 12) / 2
-        # rounded pill
-        c.create_oval(2, y0, 2 + 2 * r, y1, fill=SURFACE, outline="", tags="pill")
-        c.create_oval(w - 2 - 2 * r, y0, w - 2, y1, fill=SURFACE, outline="", tags="pill")
-        c.create_rectangle(2 + r, y0, w - 2 - r, y1, fill=SURFACE, outline="", tags="pill")
-        # mic button
-        listening = self.state == "listening"
-        mx, my, mr = w - 2 - r, h / 2, r - 6
+        w, h = max(c.winfo_width(), 200), 64
         pal = palette(self.app.settings)
-        c.create_oval(mx - mr, my - mr, mx + mr, my + mr, fill=pal["listening"][1] if listening else pal["idle"][0],
-                      outline="", tags=("pill", "mic"))
-        # simple microphone glyph
-        g = BG
-        c.create_rectangle(mx - 3, my - 9, mx + 3, my + 3, fill=g, outline=g, tags=("pill", "mic"))
-        c.create_oval(mx - 3, my - 11, mx + 3, my - 6, fill=g, outline=g, tags=("pill", "mic"))
-        c.create_oval(mx - 3, my, mx + 3, my + 5, fill=g, outline=g, tags=("pill", "mic"))
-        c.create_arc(mx - 7, my - 6, mx + 7, my + 7, start=200, extent=140, style="arc", outline=g, width=2,
-                     tags=("pill", "mic"))
-        c.create_line(mx, my + 7, mx, my + 11, fill=g, width=2, tags=("pill", "mic"))
-        c.tag_lower("pill")
-        c.coords(self._entry_win, 2 + r, h / 2)
-        c.itemconfigure(self._entry_win, width=max(60, w - 4 - 3 * r - 16))
+        acc = _hex(pal["idle"][0])
+        img, d = _canvas(w, h, _hex(BG))
+        y0, y1 = 8, h - 8
+        if self._focus or self.state == "listening":
+            glow = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
+            ImageDraw.Draw(glow).rounded_rectangle([2 * S, (y0 - 2) * S, (w - 2) * S, (y1 + 2) * S],
+                                                   radius=(h - 12) / 2 * S, fill=acc + (70,))
+            from PIL import ImageFilter
+            img.paste(glow.filter(ImageFilter.GaussianBlur(8)), (0, 0), glow.filter(ImageFilter.GaussianBlur(8)))
+        d.rounded_rectangle([4 * S, y0 * S, (w - 4) * S, y1 * S], radius=(y1 - y0) / 2 * S, fill=_hex(SURFACE),
+                            outline=_mix(_hex(SURFACE), acc, 0.55) if self._focus else _mix(_hex(BG), (255, 255, 255), 0.1),
+                            width=S)
+        (mx, my, mr), (sx, sy, sr) = self._buttons(w, h)
+        listening = self.state == "listening"
+        mfill = _hex(pal["listening"][1]) if listening else acc
+        if self._hover == "mic":
+            mfill = _mix(mfill, (255, 255, 255), 0.15)
+        d.ellipse([(mx - mr) * S, (my - mr) * S, (mx + mr) * S, (my + mr) * S], fill=mfill)
+        _icon(d, "stop" if listening else "mic", mx * S, my * S, (mr * 1.15) * S, _hex(BG))
+        if self._typing():
+            sfill = _mix(_hex(SURFACE_HI), (255, 255, 255), 0.1 if self._hover == "send" else 0.03)
+            d.ellipse([(sx - sr) * S, (sy - sr) * S, (sx + sr) * S, (sy + sr) * S], fill=sfill)
+            _icon(d, "send", sx * S, sy * S, sr * 1.1 * S, INK)
+        c.itemconfigure(self._pill_item, image=self._keep("pill", _done(img)))
+        r = (y1 - y0) / 2
+        c.coords(self._entry_win, 4 + r * 0.8, h / 2)
+        right = (2 * mr + 2 * sr + 34) if self._typing() else (2 * mr + 22)
+        c.itemconfigure(self._entry_win, width=max(60, int(w - 8 - r * 0.8 - right)))
 
     def _send(self, _event=None):
         if getattr(self, "_has_placeholder", False):
@@ -315,6 +712,7 @@ class MooWindow:
         text = self.entry.get().strip()
         if text:
             self.entry.delete(0, "end")
+            self._draw_input()
             self.app.text_request(text)
 
     # ---------- animation ----------
@@ -350,8 +748,8 @@ class MooWindow:
         self.title_label.configure(text=name.lower())
         big, small = TEXT_SIZES.get(s.get("text_size", "Medium"), TEXT_SIZES["Medium"])
         self.chat.tag_configure("moo", font=(FONT, big))
-        self.chat.tag_configure("you", font=(FONT, small))
         self.chat.tag_configure("sys", font=(FONT, max(8, small - 2)))
+        self.chat.tag_configure("who_moo", foreground=palette(s)["idle"][0])
         self.entry.configure(font=(FONT, small))
         try:
             self.root.attributes("-topmost", bool(s.get("always_on_top", False)))
@@ -359,6 +757,10 @@ class MooWindow:
         except Exception:
             pass
         self.root.after(10, self._draw_input)
+        self.root.after(10, self._draw_chip)
+        self.root.after(20, lambda: self._draw_glance(force=True))
+        if not self._chatted:
+            self.root.after(20, self._build_suggestions)
         if self._has_placeholder:
             self.entry.delete(0, "end")
             self._has_placeholder = False
@@ -375,4 +777,3 @@ class MooWindow:
 
     def run(self):
         self.root.mainloop()
-
