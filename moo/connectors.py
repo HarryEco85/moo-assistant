@@ -6,6 +6,7 @@ page; you log in once and Moo keeps the token in Windows Credential Manager.
 The server's tools then become Moo's tools (named vh3_...).
 """
 import asyncio
+import contextvars
 import json
 import logging
 import threading
@@ -25,6 +26,11 @@ ACTION_TOOLS = {"connie_chat"}
 
 class NotConnected(Exception):
     pass
+
+
+# True only inside the sign-in the user started from Settings. Background checks and
+# tool calls never open a browser, so there's only ever one login in flight.
+_INTERACTIVE = contextvars.ContextVar("interactive", default=False)
 
 
 _DROP = {"companyId", "company_id", "evidence", "thresholdsApplied", "embedding", "raw", "metadata", "html"}
@@ -100,14 +106,24 @@ class _Storage:
         set_secret(f"{self.name}_client", info.model_dump_json())
 
 
-def _wait_for_callback(timeout=300):
+class _Server(HTTPServer):
+    allow_reuse_address = False  # never share the port with an older sign-in
+
+
+def _wait_for_callback(expected_state=None, timeout=300):
     """Tiny local web server that catches the login redirect (code + state)."""
     result = {}
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             q = parse_qs(urlparse(self.path).query)
-            if "code" in q or "error" in q:
+            state = (q.get("state") or [None])[0]
+            if ("code" in q or "error" in q) and expected_state and state != expected_state:
+                body = ("<html><body style='font-family:Segoe UI,sans-serif;background:#0B0D12;color:#E8ECF3;"
+                        "display:flex;align-items:center;justify-content:center;height:90vh'>"
+                        "<div><h2>That was an older sign-in.</h2><p>Use the newest VH3 tab, or click Connect VH3 "
+                        "again in Moo's settings.</p></div></body></html>")
+            elif "code" in q or "error" in q:
                 result["code"] = (q.get("code") or [None])[0]
                 result["state"] = (q.get("state") or [None])[0]
                 result["error"] = (q.get("error") or [None])[0]
@@ -124,7 +140,10 @@ def _wait_for_callback(timeout=300):
         def log_message(self, *a):
             pass
 
-    server = HTTPServer(("127.0.0.1", CALLBACK_PORT), Handler)
+    try:
+        server = _Server(("127.0.0.1", CALLBACK_PORT), Handler)
+    except OSError:
+        raise RuntimeError(f"Another program is using port {CALLBACK_PORT}. Close other Moo windows and try again.")
     server.timeout = 1
     waited = 0
     while "code" not in result and "error" not in result and waited < timeout:
@@ -144,7 +163,9 @@ class MCPConnector:
         self._tools = read_json(self.tools_file, [])
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._loop.run_forever, daemon=True, name=f"{name}-loop").start()
-        self.interactive = False  # only open a browser when the user asked to connect
+        self._connecting = threading.Lock()
+        self._login_url = None
+        self._state = None
 
     @property
     def url(self):
@@ -162,12 +183,14 @@ class MCPConnector:
         from mcp.shared.auth import OAuthClientMetadata
 
         async def redirect(url):
-            if not self.interactive:
+            if not _INTERACTIVE.get():
                 raise NotConnected()
+            self._login_url = url
+            self._state = (parse_qs(urlparse(url).query).get("state") or [None])[0]
             webbrowser.open(url)
 
         async def callback():
-            return await asyncio.get_running_loop().run_in_executor(None, _wait_for_callback)
+            return await asyncio.get_running_loop().run_in_executor(None, _wait_for_callback, self._state)
 
         meta = OAuthClientMetadata(client_name="Moo (personal assistant)", redirect_uris=[REDIRECT_URI],
                                    grant_types=["authorization_code", "refresh_token"], response_types=["code"],
@@ -188,14 +211,23 @@ class MCPConnector:
         """Sign in (opens the browser if needed) and load the tool list."""
         if not self.url:
             return f"Add the {self.name.upper()} connection address in Settings first."
-        self.interactive = True
+        if not self._connecting.acquire(blocking=False):
+            if self._login_url:
+                webbrowser.open(self._login_url)
+            return (f"A {self.name.upper()} sign-in is already open in your browser. Finish logging in there "
+                    "(I've brought the page back up).")
+
+        async def signed_in():
+            _INTERACTIVE.set(True)
+            return await self._session_call(lambda s: s.list_tools())
         try:
-            tools = self._run(self._session_call(lambda s: s.list_tools()), timeout=360)
+            tools = self._run(signed_in(), timeout=360)
         except Exception as e:
             log.exception("%s connect failed", self.name)
             return f"Couldn't connect to {self.name.upper()}: {self._why(e)}"
         finally:
-            self.interactive = False
+            self._login_url = self._state = None
+            self._connecting.release()
         self._tools = [{"name": t.name, "description": (t.description or "")[:1000],
                         "input_schema": t.inputSchema or {"type": "object", "properties": {}}} for t in tools.tools]
         write_json(self.tools_file, self._tools)
