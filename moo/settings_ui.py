@@ -300,8 +300,8 @@ class SettingsWindow:
                  font=(FONT, 9), anchor="w").pack(fill="x", pady=(10, 0))
         self._check(t, "proactive", "Be proactive (master switch)", s.get("proactive", True))
         self._check(t, "email_alerts", "Tell me about important new emails", s.get("email_alerts", True))
-        self._slider(t, "email_check_min", "Check email every", 5, 30, s.get("email_check_min", 10), 5,
-                     "5 min", "30 min")
+        self._slider(t, "email_check_min", "Check Gmail every (Outlook is instant)", 1, 15,
+                     s.get("email_check_min", 2), 1, "1 min", "15 min")
         self._entry(t, "vip_senders", "Always important (names or emails)", s.get("vip_senders", ""),
                     note="Comma separated, e.g. your MD, key customers. Their emails always get flagged.")
         self._check(t, "meeting_alerts", "Heads-up before meetings (with drive time)", s.get("meeting_alerts", True))

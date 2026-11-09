@@ -26,6 +26,46 @@ def _naive(dt):
         return None
 
 
+def watch_new_mail(on_new, stop):
+    """Tell Moo the moment classic Outlook receives an email (no waiting for the next check)."""
+    import threading
+    import time
+
+    def run():
+        try:
+            import pythoncom
+            import win32com.client
+        except ImportError:
+            return
+        pythoncom.CoInitialize()
+
+        class Events:
+            def OnNewMailEx(self, ids):
+                try:
+                    on_new()
+                except Exception:
+                    log.exception("New-mail handler failed")
+        try:
+            while not stop.is_set():
+                try:
+                    app = win32com.client.DispatchWithEvents("Outlook.Application", Events)
+                    log.info("Watching Outlook for new mail")
+                    last_ping = time.time()
+                    while not stop.is_set():
+                        pythoncom.PumpWaitingMessages()
+                        time.sleep(0.3)
+                        if time.time() - last_ping > 60:  # still there? (Outlook may have been closed)
+                            last_ping = time.time()
+                            _ = app.Version
+                except Exception as e:
+                    log.info("Outlook new-mail watch paused (%s); retrying in a minute", str(e)[:80])
+                    app = None
+                    stop.wait(60)
+        finally:
+            pythoncom.CoUninitialize()
+    threading.Thread(target=run, daemon=True, name="outlook-events").start()
+
+
 class _Session:
     """COM must be set up per thread; use as `with _Session() as ns:`."""
 

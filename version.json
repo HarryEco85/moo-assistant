@@ -1,1 +1,1 @@
-{"version": "1.15.1", "notes": "Fixes VH3 sign-in getting crossed when several logins opened at once."}
+{"version": "1.16.0", "notes": "Faster: Outlook emails spotted the moment they land, Gmail every 2 minutes, she says \"one sec\" while looking things up, and several lookups run at once."}

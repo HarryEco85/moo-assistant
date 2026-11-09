@@ -240,6 +240,28 @@ def _tools():
     ]
 
 
+# Tools that change Moo's own state in order; never run side by side
+SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
+              "cancel_reminder", "request_approval", "log_decision", "mark_promise_done", "create_email_draft"}
+FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
+           (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
+           (("vh3_",), "Checking VH3."),
+           (("search_files", "read_file"), "Having a look."),
+           (("get_weather", "travel_time"), "Let me check."),
+           (("search_past",), "Let me think back."),
+           (("use_skill", "make_plan"), "On it."),
+           (("web_search",), "Let me look that up.")]
+
+
+def _filler(calls):
+    """A short line to say straight away when a reply needs a lookup first."""
+    for b in calls:
+        for names, line in FILLERS:
+            if any(b.name == n or (n.endswith("_") and b.name.startswith(n)) for n in names):
+                return line
+    return None
+
+
 class Brain:
     def __init__(self, settings, reminders, status=None, show_draft=None, connections=None, phone=None,
                  show_card=None):
@@ -617,16 +639,27 @@ class Brain:
             if resp.stop_reason != "tool_use":
                 break
             messages.append({"role": "assistant", "content": [b.model_dump(exclude_none=True) for b in resp.content]})
-            results = []
-            for b in resp.content:
-                if b.type == "tool_use":
-                    out = self._run_tool(b.name, b.input or {})
-                    log.info("tool %s(%s) -> %d chars", b.name, json.dumps(b.input)[:200], len(out))
-                    results.append({"type": "tool_result", "tool_use_id": b.id, "content": out[:20000]})
-            messages.append({"role": "user", "content": results})
+            calls = [b for b in resp.content if b.type == "tool_use"]
+            if on_sentence and not spoken and rounds == 1:
+                filler = _filler(calls)  # say something while she looks it up
+                if filler:
+                    on_sentence(filler)
+            messages.append({"role": "user", "content": self._run_tools(calls)})
         reply = " ".join(spoken).strip() or "Done."
         self.history.add_exchange(text, reply)
         return reply
+
+    def _run_tools(self, calls) -> list:
+        """Run this round's tools; lookups run side by side so several checks take as long as one."""
+        def one(b):
+            out = self._run_tool(b.name, b.input or {})
+            log.info("tool %s(%s) -> %d chars", b.name, json.dumps(b.input)[:200], len(out))
+            return {"type": "tool_result", "tool_use_id": b.id, "content": out[:20000]}
+        if len(calls) > 1 and not any(b.name in SEQUENTIAL for b in calls):
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(6, len(calls))) as pool:
+                return list(pool.map(one, calls))
+        return [one(b) for b in calls]
 
     def connect_outlook(self) -> str:
         try:

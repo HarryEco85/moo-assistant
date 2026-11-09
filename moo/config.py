@@ -94,7 +94,7 @@ DEFAULTS = {
     # Proactive: she keeps an eye on things
     "proactive": True,
     "email_alerts": True,
-    "email_check_min": 10,
+    "email_check_min": 2,
     "vip_senders": "",  # names or addresses that always count as important
     "meeting_alerts": True,
     "meeting_lead_min": 15,
@@ -154,6 +154,10 @@ def _migrate(settings):
         if settings.get("listen_pause") == 0.9:
             settings["listen_pause"] = 0.6
         done.add("fast_listen")
+    if "fast_email" not in done:
+        if settings.get("email_check_min", 2) >= 5:
+            settings["email_check_min"] = 2
+        done.add("fast_email")
     settings["_migrations"] = sorted(done)
 
 

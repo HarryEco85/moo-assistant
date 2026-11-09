@@ -53,6 +53,7 @@ class Watcher:
         self.state.setdefault("scanned_sent", [])
         self._last_promise_scan = 0.0
         self._stop = threading.Event()
+        self._wake = threading.Event()
         self._last_email = 0.0
         self.snoozed_until = 0.0
         self.stats = {}  # worker -> {"last": ts, "text": str, "alert": str, "error": str, "busy": bool}
@@ -114,9 +115,21 @@ class Watcher:
     # ---------- control ----------
     def start(self):
         threading.Thread(target=self._loop, daemon=True, name="proactive").start()
+        if self.s.get("outlook_mode", "desktop") == "desktop":
+            try:
+                from .outlook_desktop import watch_new_mail
+                watch_new_mail(self.email_now, self._stop)
+            except Exception:
+                log.exception("Couldn't watch Outlook for new mail")
+
+    def email_now(self):
+        """A new email has arrived: check it now rather than at the next interval."""
+        self._last_email = 0
+        self._wake.set()
 
     def stop(self):
         self._stop.set()
+        self._wake.set()
 
     def snooze(self, minutes: int) -> str:
         self.snoozed_until = time.time() + minutes * 60
@@ -173,7 +186,10 @@ class Watcher:
                     except Exception as e:
                         log.exception("Proactive job %s failed", job.__name__)
                         self._note(worker, error=str(e)[:120])
-            self._stop.wait(60)
+            self._wake.wait(60)  # every minute, or straight away when an email lands
+            if self._wake.is_set():
+                self._wake.clear()
+                self._stop.wait(3)  # give Outlook a moment to file it
 
     # ---------- meetings ----------
     def _meetings(self):
@@ -254,7 +270,7 @@ class Watcher:
     def _emails(self):
         if not self.s.get("email_alerts", True):
             return
-        every = max(3, int(self.s.get("email_check_min", 10) or 10)) * 60
+        every = max(1, int(self.s.get("email_check_min", 2) or 2)) * 60
         if time.time() - self._last_email < every:
             return
         self._last_email = time.time()
