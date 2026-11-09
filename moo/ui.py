@@ -506,6 +506,11 @@ class MooWindow:
                   "thinking": _hex(palette(self.app.settings)["thinking"][0]), "speaking": acc}.get(state, acc)
         text = {"idle": "Online", "offline": "Starting", "listening": "Listening", "thinking": "Thinking",
                 "speaking": "Speaking"}.get(state, state.title())
+        ears = getattr(self.app, "ears", None)
+        started = getattr(ears, "notes_started", None) if ears else None
+        if started and state in ("idle", "offline"):
+            secs = int(time.time() - started)
+            colour, text = (248, 113, 113), f"Taking notes  {secs // 60}:{secs % 60:02d}"
         f = _font("semibold", 8.5)
         probe = ImageDraw.Draw(Image.new("RGB", (4, 4)))
         w, h = int(probe.textlength(text, font=f) / S + 30), 22
@@ -718,6 +723,13 @@ class MooWindow:
     # ---------- animation ----------
     def _animate(self):
         t = time.time() - self.t0
+        ears = getattr(self.app, "ears", None)
+        notes = bool(ears and getattr(ears, "notes_started", None))
+        if notes or getattr(self, "_chip_notes", False):
+            if int(t) != getattr(self, "_chip_tick", -1):
+                self._chip_tick = int(t)
+                self._draw_chip()
+            self._chip_notes = notes
         level = self.app.mouth.level if (self.app.mouth and self.state == "speaking") else 0.0
         try:
             self._orb_img = ImageTk.PhotoImage(self.orb.render(self.state, t, level, palette(self.app.settings)))

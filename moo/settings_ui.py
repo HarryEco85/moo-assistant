@@ -283,6 +283,9 @@ class SettingsWindow:
     def _build_listening(self):
         t, s = self.tab_listen, self.s
         self._check(t, "wake_word_enabled", "Listen for the wake word", s.get("wake_word_enabled", True))
+        self._combo(t, "wake_engine", "Wake word", [("moo", f"Hey {s.get('assistant_name', 'Moo') or 'Moo'} (her name)"),
+                                                    ("jarvis", "Hey Jarvis (older, lighter on the PC)")],
+                    s.get("wake_engine", "moo"))
         self._slider(t, "wake_word_threshold", "Wake word sensitivity", 0.3, 0.85,
                      s.get("wake_word_threshold", 0.5), 0.05, "Hears it easily", "Fewer false starts")
         self._slider(t, "listen_pause", "How long a pause means you've finished", 0.6, 3.0,
@@ -323,7 +326,7 @@ class SettingsWindow:
         self._check(t, "suggest_actions", "Offer to draft replies and quote chases (only with my OK)",
                     s.get("suggest_actions", True))
         self._check(t, "log_decisions", "Keep a log of decisions I make, for later", s.get("log_decisions", True))
-        self._check(t, "wrap_up", "End-of-day wrap-up", s.get("wrap_up", False))
+        self._check(t, "wrap_up", "End-of-day wrap-up", s.get("wrap_up", True))
         self._entry(t, "wrap_time", "Wrap-up time (weekdays)", s.get("wrap_time", "17:30"))
         self._label(t, "Quiet hours", "No alerts between these times. Reminders you set still come through.")
         row = tk.Frame(t, bg=SURFACE)

@@ -73,6 +73,7 @@ DEFAULTS = {
     # Wake word: a custom "hey_moo.onnx" in the models folder is used if present,
     # otherwise the built-in "hey_jarvis" model.
     "wake_word_enabled": True,
+    "wake_engine": "moo",  # "moo" = Hey Moo (her name), "jarvis" = the built-in Hey Jarvis model
     "wake_word_model": "hey_moo",
     "wake_word_fallback": "hey_jarvis",
     "wake_word_threshold": 0.5,
@@ -103,7 +104,7 @@ DEFAULTS = {
     "meeting_lead_min": 15,
     "waiting_nudge": True,
     "waiting_time": "16:00",
-    "wrap_up": False,
+    "wrap_up": True,
     "wrap_time": "17:30",
     "promise_tracker": True,  # spot promises in sent mail and remind when due; chase quiet quotes
     "quote_followup_days": 7,
@@ -161,6 +162,9 @@ def _migrate(settings):
         if settings.get("listen_pause", 1.2) < 1.2:
             settings["listen_pause"] = 1.2
         done.add("more_time")
+    if "wrap_on" not in done:
+        settings["wrap_up"] = True
+        done.add("wrap_on")
     if "fast_email" not in done:
         if settings.get("email_check_min", 2) >= 5:
             settings["email_check_min"] = 2

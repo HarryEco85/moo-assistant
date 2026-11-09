@@ -115,7 +115,7 @@ Click **▦** at the top of her window (or say "show me the office") to see her 
 
 ## Skills (jobs you teach her once)
 
-Six come ready to go: **Monday ops summary**, **Prep me for tomorrow**, **Inbox sweep**, **RAMS wording**, **Quote wording** and **Chase a quote**. Say the name, or something like it, and she follows the steps the same way every time.
+These come ready to go: **Monday ops summary**, **Prep me for tomorrow**, **Inbox sweep**, **Customer briefing** ("brief me on Kier before I ring them"), **Quote builder** (talk her through a job from site and she writes the quote wording in your style), **RAMS wording**, **Quote wording** and **Chase a quote**. Say the name, or something like it, and she follows the steps the same way every time.
 
 Make your own in Settings > Skills, or just tell her: "save that as a skill called Friday cash check", or "whenever I ask for the weekly numbers, do this...".
 
@@ -126,6 +126,24 @@ When Moo thinks something would help but you didn't ask for it, like drafting a 
 ## Big jobs: plan, act, check
 
 For anything with several steps (an inbox sweep, prepping for tomorrow, a weekly summary) she writes a short plan, works through it with live progress in the office view, then checks her own work (drafts really saved, numbers adding up, nothing missed) before she reports back. You can give big jobs a smarter brain in Settings > Accounts > "Brain for big jobs".
+
+## Meeting and call notes
+
+Say "Hey Moo, take notes" (or "record this meeting"). A red **Taking notes** badge shows in her window. When you're done, say "Hey Moo, stop notes" or press **Stop notes**. She writes up tidy notes (summary, key points, decisions, actions, open questions), saves them with the full transcript in **Documents > Moo Notes**, logs the decisions, sets reminders for your actions, and queues a follow-up email for your OK.
+
+She only hears your microphone. On a Teams call with a headset she'll mostly hear your side; on speakers she'll catch some of the other side too.
+
+## "Look at this"
+
+With a job, quote, drawing or email open, say "Hey Moo, look at this, is it right?" She takes a snapshot of the window you're working in (never her own) and answers about it. From your phone, send her a photo (with a question as the caption if you like): a defect, a meter reading, a label, a drawing.
+
+## Van mode
+
+Send a voice note on Telegram and she replies with a short voice note, written for listening while driving. When the chat goes quiet for ten minutes she texts you a short written recap of what was decided and what you still need to do.
+
+## End-of-day wrap
+
+At 17:30 on weekdays (change it in Settings > Proactive) she tells you what got done, what's slipped, who's still waiting on you and what's first tomorrow, and sends it to your phone.
 
 ## Long memory
 
@@ -152,15 +170,11 @@ Things to try:
 
 Set your **home postcode** and **email sign-off** in ⚙ → Personality so weather, drive times and drafts are right.
 
-## The wake word: "Hey Jarvis" until you make "Hey Moo"
+## The wake word: "Hey Moo"
 
-openWakeWord ships with "Hey Jarvis" ready-made, so that's the wake word to begin with (apt, really). To make it **"Hey Moo"**:
+Say **"Hey Moo"**, or say the whole thing in one breath: "Hey Moo, what's on tomorrow?" She uses a small speech model (about 75 MB, downloaded the first time) that only listens for short phrases starting with her name. If you rename her, the wake word follows the new name.
 
-1. Open openWakeWord's free training notebook in Google Colab (linked from github.com/dscripka/openWakeWord, "Training New Models").
-2. Enter `hey moo` as the phrase and run it. It takes around an hour and produces a file ending `.onnx`.
-3. Rename it `hey_moo.onnx` and put it in `%APPDATA%\MooLite\models`, then restart Moo.
-
-If "Hey Jarvis" triggers too easily or not enough, change `wake_word_threshold` in `%APPDATA%\MooLite\settings.json` (higher = stricter; 0.5 is the default).
+If it triggers by accident or you want something lighter on an older PC, switch to **Hey Jarvis** in Settings > Listening > Wake word.
 
 ## Customising Moo
 

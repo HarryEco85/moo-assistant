@@ -362,11 +362,41 @@ class Watcher:
         if not self.app.busy.acquire(timeout=120):
             return
         try:
-            reply = self.app.brain.ask("Give me my end-of-day wrap-up: what came in today that still needs me, "
-                                       "anything unanswered, and tomorrow's first meeting. Keep it to a few sentences.")
+            reply = self.app.brain.ask(self._wrap_prompt(), channel="wrap")
         finally:
             self.app.busy.release()
         self.alert(reply, "End of day", speak=True)
+
+    def _wrap_prompt(self) -> str:
+        """Today's facts for the wrap-up, so she reports on the day, not just the inbox."""
+        start = time.mktime(datetime.now().replace(hour=0, minute=0, second=0).timetuple())
+        done = []
+        ap = getattr(self.app, "approvals", None)
+        if ap:
+            done += [f"approved and done: {a['title']}" for a in ap.items
+                     if a["status"] == "done" and a.get("updated", 0) >= start]
+        perf = self.app._perf_today() if hasattr(self.app, "_perf_today") else {}
+        if perf.get("plans"):
+            done.append(f"{perf['plans']} bigger job(s) completed with Moo")
+        promises = self.state.get("promises", [])
+        today = datetime.now().strftime("%Y-%m-%d")
+        done += [f"promise kept: {p['promise']}" for p in promises if p.get("status") == "done"
+                 and str(p.get("done_at", today))[:10] == today]
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        slipped = [f"{p['promise']} (to {p.get('to') or '?'}, was due {p['due']})" for p in promises
+                   if p.get("status") == "open" and p.get("due") and str(p["due"]) < now]
+        waiting = self.stats.get("waiting", {}).get("alert", "")
+        pending = [a["title"] for a in ap.pending()] if ap else []
+        facts = ["Done today: " + ("; ".join(done[:10]) or "nothing logged"),
+                 "Slipped (overdue promises): " + ("; ".join(slipped[:8]) or "none"),
+                 "Waiting on you (from the 4pm check): " + (waiting or "not checked or nobody"),
+                 "Still waiting for your OK: " + ("; ".join(pending[:6]) or "nothing")]
+        return ("[End-of-day wrap, requested by the schedule.] Facts from today:\n" + "\n".join(facts) + "\n"
+                "Now check tomorrow with get_calendar (and check_diary_clashes), and today's inbox for anything "
+                "unanswered from real people in the last 10 hours. Then give the wrap in this order, spoken "
+                "naturally, about six sentences: what got done, what's slipped, who's still waiting on you, and "
+                "what's first tomorrow (with when to leave if it has an address). End with one short nudge if "
+                "something must happen before tomorrow.")
 
     # ---------- promises and quotes gone quiet ----------
     def _sent_entries(self, hours):
@@ -440,6 +470,7 @@ class Watcher:
                 continue
             if self._promise_done(p):
                 p["status"] = "done"
+                p["done_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 self._save()
                 continue
             p["reminded"] = True
@@ -502,6 +533,7 @@ class Watcher:
         hit = [p for i, p in enumerate(items) if ref == str(i + 1) or ref in p["promise"].lower() or ref in p["to"].lower()]
         for p in hit:
             p["status"] = "done"
+            p["done_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
         self._save()
         return ("Marked done: " + "; ".join(p["promise"] for p in hit)) if hit else "No matching open promise."
 

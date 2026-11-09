@@ -63,6 +63,7 @@ class Phone:
         self._stop = threading.Event()
         self._thread = None
         self.status = "off"
+        self._van = []  # recent voice-note exchanges, for the text recap
 
     # ---------- settings helpers ----------
     @property
@@ -198,6 +199,7 @@ class Phone:
                 if offset:
                     params["offset"] = offset
                 updates = self._call("getUpdates", http_timeout=65, **params) or []
+                self._maybe_recap()
                 for u in updates:
                     offset = u["update_id"] + 1
                     if u.get("callback_query") and not stop.is_set():
@@ -237,6 +239,15 @@ class Phone:
         if user_id != self.paired_id():
             return  # not Harry's account: ignore completely
         voice_in = False
+        images = []
+        if msg.get("photo") or (msg.get("document") or {}).get("mime_type", "").startswith("image/"):
+            try:
+                images = [self._image(msg)]
+            except Exception as e:
+                log.warning("Couldn't fetch the photo: %s", e)
+                self.send_text("I couldn't open that photo, try sending it again.", chat_id)
+                return
+            text = (msg.get("caption") or "").strip() or "What do you make of this photo?"
         if msg.get("voice") or msg.get("audio"):
             voice_in = True
             text = self._transcribe(msg.get("voice") or msg.get("audio"))
@@ -247,7 +258,10 @@ class Phone:
             self.send_text("I'm here. What do you need?", chat_id)
             return
         self._call("sendChatAction", chat_id=chat_id, action="typing")
-        reply, drafts = self.app.ask_from_phone(text, heard=voice_in)
+        reply, drafts = self.app.ask_from_phone(text, heard=voice_in, images=images)
+        if voice_in:
+            self._van.append((time.time(), text, reply))
+            self._van = self._van[-20:]
         for label, body in drafts:
             if label == "__image__":
                 try:
@@ -264,6 +278,37 @@ class Phone:
                 self.send_voice(reply, chat_id)
             except Exception as e:
                 log.warning("Voice reply failed: %s", e)
+
+    def _image(self, msg) -> dict:
+        """A photo from the phone, ready for Moo to look at."""
+        from .screen import bytes_to_block
+        if msg.get("photo"):
+            sizes = sorted(msg["photo"], key=lambda p: p.get("width", 0))
+            pick = next((p for p in reversed(sizes) if p.get("width", 0) <= 1600), sizes[-1])
+            file_id = pick["file_id"]
+        else:
+            file_id = msg["document"]["file_id"]
+        f = self._call("getFile", file_id=file_id)
+        data = requests.get(f"{API}/file/bot{self.token()}/{f['file_path']}", timeout=60).content
+        return bytes_to_block(data)
+
+    def _maybe_recap(self):
+        """Van mode: after a voice-note conversation goes quiet, send a short written recap."""
+        if not self._van or time.time() - self._van[-1][0] < 600:
+            return
+        talk, self._van = self._van, []
+        if len(talk) < 2 or not self.s.get("phone_voice_recap", True):
+            return
+        try:
+            convo = "\n".join(f"HE SAID: {q}\nYOU SAID: {a}" for _, q, a in talk)
+            recap = self.app.brain.quick(
+                "This was a voice-note chat with the user while they were out, probably driving. Write a short "
+                "written recap for their phone: what was decided or done, and anything they still need to do, as a "
+                "few short lines starting with a dash. No preamble. Only include things actually said.", convo)
+            if recap.strip():
+                self.notify("Recap of our voice chat\n" + recap.strip())
+        except Exception as e:
+            log.warning("Recap failed: %s", e)
 
     def _transcribe(self, media) -> str:
         ears = self.app.ears

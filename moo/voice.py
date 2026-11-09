@@ -476,6 +476,27 @@ class Mouth:
                 on_end()
 
 
+_WAKE = re.compile(r"^\W*(?:(hey|hi|hay|ay|a|okay|ok|oi|right)\W+)?(moo+|mu|moe|mo|mooh)\b\W*(.*)$", re.I)
+
+
+def match_wake(text, name="Moo"):
+    """'Hey Moo' (or her name) at the start of a phrase. Returns what came after it ('' if nothing),
+    or None if it wasn't the wake phrase. Without 'hey', only a clear 'Moo' counts."""
+    t = (text or "").strip()
+    if name.lower() != "moo":
+        m = re.match(rf"^\W*(?:(hey|hi|okay|ok)\W+)?({re.escape(name)})\b\W*(.*)$", t, re.I)
+    else:
+        m = _WAKE.match(t)
+    if not m:
+        return None
+    hey, word, rest = m.group(1), m.group(2).lower(), m.group(3).strip()
+    if not hey and not word.startswith("moo") and name.lower() == "moo":
+        return None
+    if not hey and len(t.split()) > 12:
+        return None  # a long sentence that happens to start with "moo..." isn't for her
+    return rest
+
+
 class Ears:
     """One microphone stream. Normally listens for the wake word; when asked,
     records one utterance and transcribes it."""
@@ -486,6 +507,14 @@ class Ears:
         self.on_barge = on_barge  # you started talking over her
         self.is_speaking = is_speaking or (lambda: False)
         self._preroll = collections.deque(maxlen=10)  # last ~0.8 s, so your first words aren't lost
+        self.tiny = None  # small speech model that listens for "Hey Moo"
+        self._spot = {"seg": [], "on": False, "quiet": 0, "noise": None, "skip": False}
+        self._spot_q = queue.Queue(maxsize=8)
+        self._wlock = threading.Lock()  # one transcription at a time on the main model
+        self.notes_lines = []  # (time, text) while taking notes
+        self._notes_q = queue.Queue()
+        self._notes_seg = {"seg": [], "on": False, "quiet": 0, "noise": None}
+        self.notes_started = None
         self._talk = None  # barge-in tracking while she speaks
         self.frames = queue.Queue(maxsize=400)
         self._record_q = queue.Queue()
@@ -518,6 +547,7 @@ class Ears:
     def _load_models(self):
         try:
             self._load_wake_word()  # quick, so do it first
+            self._load_tiny()
             self._load_whisper()
         finally:
             self.models_ready = True
@@ -543,6 +573,19 @@ class Ears:
             log.exception("Wake word unavailable: %s", e)
             self.wake_error = str(e)
 
+    def _load_tiny(self):
+        """The "Hey Moo" listener: a tiny speech model that only hears short phrases."""
+        if self.settings.get("wake_engine", "moo") != "moo" or self.tiny is not None:
+            return
+        try:
+            from faster_whisper import WhisperModel
+            self.tiny = WhisperModel("tiny.en", device="cpu", compute_type="int8", cpu_threads=2,
+                                     download_root=str(MODELS_DIR / "whisper"))
+            threading.Thread(target=self._spot_worker, daemon=True, name="hey-moo").start()
+            log.info("Hey Moo listener ready")
+        except Exception as e:
+            log.warning("Hey Moo listener unavailable (%s); using %s", e, self.wake_name)
+
     def _load_whisper(self):
         # GPU if available, otherwise CPU
         _add_cuda_dll_dirs()
@@ -563,6 +606,9 @@ class Ears:
 
     @property
     def wake_phrase(self) -> str:
+        if self.tiny is not None and self.settings.get("wake_engine", "moo") == "moo":
+            name = self.settings.get("assistant_name", "Moo") or "Moo"
+            return f"Hey {name}"
         return (self.wake_name or "").replace("_", " ").title()
 
     def _callback(self, indata, frames, time_info, status):
@@ -610,17 +656,127 @@ class Ears:
                 self._preroll.clear()
                 self.on_barge(pre)
                 continue
-            threshold = float(self.settings.get("wake_word_threshold", 0.5))
-            enabled = self.settings.get("wake_word_enabled", True)
-            if self.mode != "wake" or self.wake_model is None or not enabled:
-                if self.mode == "record":
-                    self._record_q.put(frame)
+            if self.mode == "record":
+                self._record_q.put(frame)
                 continue
+            if self.mode == "notes" and not self.is_speaking():
+                self._notes_frame(frame)
+            if not self.settings.get("wake_word_enabled", True) or self.mode not in ("wake", "notes"):
+                continue
+            if self.tiny is not None and self.settings.get("wake_engine", "moo") == "moo":
+                if not self.is_speaking():
+                    self._spot_frame(frame)
+                continue
+            if self.wake_model is None:
+                continue
+            threshold = float(self.settings.get("wake_word_threshold", 0.5))
             scores = self.wake_model.predict(frame)
             if max(scores.values(), default=0) >= threshold and time.time() - self._last_wake > 2:
                 self._last_wake = time.time()
                 self.wake_model.reset()
                 self.on_wake()
+
+    # ----- "Hey Moo" -----
+    @staticmethod
+    def _segment(st, frame, end_quiet, max_frames, min_level=350.0):
+        """Split the mic into phrases by loudness. Returns a finished phrase (list of frames) or None."""
+        rms = float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)))
+        if st["noise"] is None:
+            st["noise"] = min(rms, 300.0)
+        if not st["on"]:  # background level: drops quickly, rises slowly (so talking doesn't become "background")
+            st["noise"] = 0.9 * st["noise"] + 0.1 * rms if rms < st["noise"] else 0.995 * st["noise"] + 0.005 * rms
+        level = max(st["noise"] * 3.0, min_level)
+        if rms > level:
+            if not st["on"]:
+                st["on"], st["seg"] = True, list(st.get("pre", []))
+            st["quiet"] = 0
+            st["seg"].append(frame)
+        elif st["on"]:
+            st["seg"].append(frame)
+            st["quiet"] += 1
+            if st["quiet"] >= end_quiet:
+                seg, st["seg"], st["on"], st["quiet"] = st["seg"], [], False, 0
+                return seg
+        else:
+            st.setdefault("pre", collections.deque(maxlen=3)).append(frame)
+        if st["on"] and len(st["seg"]) >= max_frames:
+            seg, st["seg"], st["on"], st["quiet"] = st["seg"], [], False, 0
+            return seg
+        return None
+
+    def _spot_frame(self, frame):
+        seg = self._segment(self._spot, frame, end_quiet=6, max_frames=95)  # pause ~0.5 s, phrase up to ~7.5 s
+        if seg is None:
+            return
+        dur = len(seg) * FRAME / RATE
+        if 0.35 <= dur <= 7.4:
+            try:
+                self._spot_q.put_nowait(np.concatenate(seg))
+            except queue.Full:
+                pass
+
+    def _spot_worker(self):
+        while True:
+            audio = self._spot_q.get()
+            try:
+                pcm = audio.astype(np.float32) / 32768.0
+                segs, _ = self.tiny.transcribe(pcm, language="en", beam_size=1, without_timestamps=True,
+                                               initial_prompt="Hey Moo.", condition_on_previous_text=False)
+                text = " ".join(s.text.strip() for s in segs).strip()
+            except Exception as e:
+                log.warning("Hey Moo check failed: %s", e)
+                continue
+            hit = match_wake(text, self.settings.get("assistant_name", "Moo") or "Moo")
+            if hit is None or time.time() - self._last_wake < 2 or self.mode not in ("wake", "notes"):
+                continue
+            self._last_wake = time.time()
+            log.info("Heard the wake phrase: %r", text[:80])
+            self.on_wake(hit or None)
+
+    # ----- meeting notes -----
+    def start_notes(self):
+        self.notes_lines, self.notes_started = [], time.time()
+        self._notes_seg = {"seg": [], "on": False, "quiet": 0, "noise": None}
+        self.mode = "notes"
+        threading.Thread(target=self._notes_worker, daemon=True, name="notes").start()
+
+    def stop_notes(self) -> list:
+        """Stop taking notes; waits for the last bit to be written up. Returns [(seconds in, text)]."""
+        if self.mode == "notes":
+            self.mode = "wake"
+        seg = self._notes_seg.get("seg")
+        if seg:
+            self._notes_q.put((time.time(), np.concatenate(seg)))
+        self._notes_q.put(None)
+        self._notes_q.join()
+        self.notes_started, lines = None, self.notes_lines
+        return lines
+
+    def _notes_frame(self, frame):
+        seg = self._segment(self._notes_seg, frame, end_quiet=13, max_frames=320, min_level=300.0)
+        if seg is not None and len(seg) * FRAME / RATE >= 0.6:  # a pause of ~1 s, or 25 s of talking
+            self._notes_q.put((time.time(), np.concatenate(seg)))
+
+    def _notes_worker(self):
+        while True:
+            item = self._notes_q.get()
+            try:
+                if item is None:
+                    return
+                ts, audio = item
+                pcm = audio.astype(np.float32) / 32768.0
+                with self._wlock:
+                    segs, _ = self.whisper.transcribe(
+                        pcm, language="en", beam_size=int(self.settings.get("whisper_beam", 3) or 1),
+                        vad_filter=True, without_timestamps=True, condition_on_previous_text=False,
+                        initial_prompt=(self.settings.get("vocabulary") or "").strip() or None)
+                    text = " ".join(s.text.strip() for s in segs).strip()
+                if text and not match_wake(text, self.settings.get("assistant_name", "Moo") or "Moo"):
+                    self.notes_lines.append((ts - (self.notes_started or ts), text))
+            except Exception as e:
+                log.warning("Notes transcription failed: %s", e)
+            finally:
+                self._notes_q.task_done()
 
     # ----- recording -----
     def reload_whisper(self):
@@ -644,6 +800,7 @@ class Ears:
                 self.frames.get_nowait()
             except queue.Empty:
                 break
+        back_to = "notes" if self.mode == "notes" else "wake"
         self.mode = "record"
         audio, started = list(preroll or []), bool(preroll)
         speech_at = time.time()
@@ -672,11 +829,15 @@ class Ears:
                 if now - t0 > max_seconds:
                     break
         finally:
-            self.mode = "wake"
+            self.mode = back_to
         pcm = np.concatenate(audio).astype(np.float32) / 32768.0
         t0 = time.time()
 
         def transcribe():
+            with self._wlock:
+                return _transcribe()
+
+        def _transcribe():
             segments, _ = self.whisper.transcribe(
                 pcm, language="en", beam_size=int(self.settings.get("whisper_beam", 3) or 1), vad_filter=True,
                 without_timestamps=True, condition_on_previous_text=False,

@@ -11,6 +11,19 @@ from logging.handlers import RotatingFileHandler
 from .config import DATA_DIR, LOG_FILE, user_name, ensure_dirs, get_api_key, load_settings, read_json, write_json
 from .reminders import Reminders, notify
 
+
+def documents_dir():
+    """Your Documents folder (follows OneDrive if Windows moved it there)."""
+    from pathlib import Path
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as k:
+            import os
+            return Path(os.path.expandvars(winreg.QueryValueEx(k, "Personal")[0]))
+    except Exception:
+        return Path.home() / "Documents"
+
 log = logging.getLogger("moo")
 BRIEF_FILE = DATA_DIR / "last_briefing.json"
 STOP_WORDS = re.compile(r"^(stop|shush|quiet|be quiet|that's enough|cancel|never ?mind)[.!]?$", re.I)
@@ -21,6 +34,10 @@ YES = re.compile(r"^(yes|yeah|yep|yup|go on|please( do)?|sure|ok(ay)?|do it)\b.{
 NO = re.compile(r"^(no|nope|nah|don'?t|no thanks?|leave it|skip( it)?)\b.{0,30}$", re.I)
 OFFICE = re.compile(r"\b(show|open)\b.{0,12}\b(office|workers|board)\b", re.I)
 UPDATE_CHECK = re.compile(r"\b(check|look) (for )?(an? )?updates?\b|\bany updates?\b", re.I)
+TAKE_NOTES = re.compile(r"\b(take|start( taking)?|keep) (some )?(notes|minutes)\b|\b(record|minute) (this|the) "
+                        r"(meeting|call|conversation)\b", re.I)
+STOP_NOTES = re.compile(r"\b(stop|finish|end|done|wrap up)( taking)?( the)? (notes|minutes|recording)\b|"
+                        r"\bthat'?s the end of the (meeting|call)\b|\bstop notes\b", re.I)
 APPROVE = re.compile(r"^(approve(d)?( it| that)?|go ahead( with it)?|yes,? (do|go ahead with) (it|that))[.!]?$", re.I)
 REJECT = re.compile(r"^(reject( it| that)?|don'?t do (it|that)|no,? (leave|skip) (it|that))[.!]?$", re.I)
 UPDATE_INSTALL = re.compile(r"\b(install|do|run|get|apply) (the |that )?update\b|\bupdate yourself\b", re.I)
@@ -176,6 +193,8 @@ class MooApp:
             self._register_hotkey()
         if whisper_changed and self.ears:
             self.ears.reload_whisper()
+        if self.ears and self.settings.get("wake_engine", "moo") == "moo" and self.ears.tiny is None:
+            threading.Thread(target=self.ears._load_tiny, daemon=True).start()
         self.phone.restart()
         self._update_hint()
         self._footer()
@@ -266,8 +285,26 @@ class MooApp:
             self.mouth.stop()
         self.ui.set_state("idle")
 
-    def _woken(self):
-        self.voice_request()
+    def _woken(self, command=None):
+        """The wake phrase. If you said the request in the same breath ("Hey Moo, what's on today?"),
+        go straight to it."""
+        if not command or len(command.split()) < 2:
+            self.voice_request()
+            return
+        if self.mouth and self.mouth.speaking:
+            self.mouth.stop()
+
+        def run():
+            if not self.busy.acquire(timeout=8):
+                return
+            try:
+                self.ui.add_message("You", command)
+                self._answer(command)
+            finally:
+                if not (self.mouth and self.mouth.speaking):
+                    self.ui.set_state("idle")
+                self.busy.release()
+        threading.Thread(target=run, daemon=True, name="wake-command").start()
 
     def _barged(self, preroll):
         """You started talking over her: stop, and listen to what you're saying."""
@@ -319,6 +356,12 @@ class MooApp:
         if STOP_WORDS.match(text.strip()):
             self.stop_speaking()
             return
+        if self.ears and self.ears.notes_started and STOP_NOTES.search(text):
+            self.finish_notes()
+            return None
+        if TAKE_NOTES.search(text) and not (self.ears and self.ears.notes_started):
+            self.start_notes()
+            return None
         if getattr(self, "pending_memory", None) and (YES.match(text.strip()) or NO.match(text.strip())):
             self.say(self.answer_memory(bool(YES.match(text.strip()))))
             return None
@@ -538,7 +581,7 @@ class MooApp:
                          f"; wake word {'on' if s.get('wake_word_enabled', True) and self.ears.wake_phrase else 'off'}")
         return "\n".join(lines)
 
-    def ask_from_phone(self, text, heard=False):
+    def ask_from_phone(self, text, heard=False, images=None):
         """A message from Telegram: answer in text (no speaking on the PC)."""
         drafts = []
         self._phone_cards = []
@@ -554,10 +597,17 @@ class MooApp:
             self.ui.add_message("You", f"(phone) {text}")
             self.ui.set_state("thinking", "Message from your phone")
             who = user_name(self.settings)
-            note = (f"[Sent from {who}'s phone{' as a voice note' if heard else ''}. {who} is away from the PC: "
-                    "reply in text for a phone screen, don't open files on the PC, and keep it brief.] ")
+            if heard:  # van mode: they're likely driving, the answer will be played back as a voice note
+                note = (f"[Voice note from {who}'s phone; they're probably driving. Answer in one to three short "
+                        "spoken sentences, no lists, no reading out long details (offer to text them instead). "
+                        "Don't open files on the PC.] ")
+            else:
+                note = (f"[Sent from {who}'s phone. {who} is away from the PC: reply in text for a phone screen, "
+                        "don't open files on the PC, and keep it brief.] ")
+            if images:
+                note += "[They've attached a photo.] "
             try:
-                reply = self.brain.ask(note + text, channel="phone")
+                reply = self.brain.ask(note + text, channel="phone", images=images or None)
                 self._count_reply(None)
             except Exception as e:
                 log.exception("Phone request failed")
@@ -573,6 +623,71 @@ class MooApp:
             self.ui.set_state("idle")
             self.busy.release()
             self._footer()
+
+    # ---------- meeting notes ----------
+    def start_notes(self):
+        if not (self.ears and self.ears.available and self.ears.whisper is not None):
+            self.say("I can't take notes without the microphone and speech recognition running, sorry.")
+            return
+        self.ears.start_notes()
+        self.ui.add_action("Stop notes", lambda: threading.Thread(target=self._notes_button, daemon=True).start())
+        wake = self.ears.wake_phrase or "the mic button"
+        self.say(f"Righto, I'm taking notes. When you're done, say {wake}, stop notes, or press the button.")
+
+    def _notes_button(self):
+        if not self.busy.acquire(timeout=30):
+            return
+        try:
+            self.finish_notes()
+        finally:
+            self.busy.release()
+
+    def finish_notes(self):
+        if not (self.ears and self.ears.notes_started):
+            return
+        self.ui.set_state("thinking", "Writing up the notes")
+        lines = self.ears.stop_notes()
+        words = sum(len(t.split()) for _, t in lines)
+        if words < 15:
+            self.say("I didn't catch enough to write up, I'm afraid. Was the mic near you?")
+            return
+        who = user_name(self.settings)
+        stamp = datetime.now()
+        transcript = "\n".join(f"[{int(s // 60):02d}:{int(s % 60):02d}] {t}" for s, t in lines)
+        try:
+            notes = self.brain.quick(
+                f"Turn this meeting or call transcript into tidy notes for {who}. Only their microphone was "
+                "recorded, so the other side may be partial; don't invent anything that isn't there. Use these "
+                "headings: Summary (2-3 sentences), Key points, Decisions, Actions (who, what, by when), and "
+                "Open questions. Plain text, short lines starting with a dash. British English.", transcript[:60000])
+        except Exception as e:
+            log.exception("Notes write-up failed")
+            notes = f"(Couldn't write up the notes: {str(e)[:120]})"
+        path = None
+        try:
+            folder = documents_dir() / "Moo Notes"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"{stamp.strftime('%Y-%m-%d %H%M')} meeting notes.txt"
+            path.write_text(f"Meeting notes, {stamp.strftime('%A %d %B %Y, %H:%M')}\n\n{notes}\n\n"
+                            f"----- Transcript -----\n{transcript}\n", encoding="utf-8")
+        except Exception:
+            log.exception("Couldn't save the notes")
+        self.ui.add_draft(notes, "Meeting notes")
+        if path:
+            self.ui.add_action("Open the notes", lambda p=str(path): __import__("os").startfile(p))
+        try:
+            reply = self.brain.ask(
+                f"[Meeting notes, recorded on the PC. Tidy notes below.] Now: 1) log_decision for each decision "
+                f"{who} made. 2) set_reminder for each action {who} owns that has a time; for important ones "
+                "without a time, 9am the next working day. 3) If other people or companies were involved, "
+                "request_approval to draft a follow-up email to them summarising decisions and actions (put the "
+                "summary and who it's for in the instruction). 4) Then tell me in three or four spoken sentences "
+                "what the meeting landed on, what you've set up, and that the full notes are saved in Documents, "
+                f"Moo Notes.\n\n{notes}", channel="notes")
+        except Exception as e:
+            log.exception("Notes follow-up failed")
+            reply = f"The notes are saved in Documents, Moo Notes, but I couldn't set up the follow-ups: {str(e)[:120]}"
+        self.say(reply)
 
     # ---------- approvals ----------
     def show_approval(self, item, notify=True):

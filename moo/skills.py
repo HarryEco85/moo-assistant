@@ -11,6 +11,7 @@ import time
 from .config import DATA_DIR, read_json, write_json
 
 SKILLS_FILE = DATA_DIR / "skills.json"
+META_FILE = DATA_DIR / "skills_meta.json"
 
 STARTERS = [
     {"name": "Monday ops summary",
@@ -57,6 +58,31 @@ STARTERS = [
               "2. Write only the wording to drop into the existing quote template: a short scope of works, "
               "inclusions, exclusions and assumptions. No prices unless given, no letterhead.\n"
               "3. Put it on the clipboard with copy_to_clipboard and say it's ready to paste."},
+    {"name": "Customer briefing",
+     "when": "brief me on a customer, before I ring them, what's going on with a customer, customer catch-up",
+     "steps": "1. If VH3 is connected: vh3_search_autocomplete for the customer name to get their contact id, then "
+              "vh3_contact_detail with include_summary true.\n"
+              "2. vh3_list_jobs for that customer: open and recently completed jobs, anything overdue or with an "
+              "SLA problem.\n"
+              "3. vh3_list_quotes (and vh3_list_quotient_quotes) for that customer: anything outstanding or "
+              "recently accepted.\n"
+              "4. search_emails for the customer or company name, last 30 days, both accounts: the latest thread "
+              "and anything unanswered.\n"
+              "5. search_past for the customer name: decisions and anything said about them before.\n"
+              "6. Brief me in about six spoken sentences: who they are, live jobs and any problems, money "
+              "(quotes out), the latest email and whether we owe them a reply, and one suggestion for the call."},
+    {"name": "Quote builder",
+     "when": "build a quote, price this job, quote for, write up a quote from site",
+     "steps": "1. From what I've told you, list the work: task, quantities (metres, chambers, hours, visits), "
+              "access, plant and any specialist kit. Ask ONE short question only if something essential is missing.\n"
+              "2. Use rates I've asked you to remember (day rates, plant hire, CCTV per metre, jetting). Where a "
+              "rate isn't known, leave [£ ] for me to fill in. Never invent prices.\n"
+              "3. To match my style, search_emails in sent mail for 'quote' and read one recent quote email.\n"
+              "4. Write ONLY the wording to drop into my quote template: scope of works, inclusions, exclusions, "
+              "assumptions, programme (duration, out-of-hours if relevant), and a line items list with "
+              "quantity, unit and rate. No letterhead.\n"
+              "5. Put it on the clipboard with copy_to_clipboard and tell me in one line what's in it and which "
+              "prices I still need to fill in."},
     {"name": "Chase a quote",
      "when": "chase a quote, follow up a quote, nudge the customer about the quote",
      "steps": "1. search_emails for the quote sent to that person or company and read the latest one.\n"
@@ -71,7 +97,24 @@ class Skills:
         self._lock = threading.Lock()
         if not SKILLS_FILE.exists():
             write_json(SKILLS_FILE, STARTERS)
+            write_json(META_FILE, {"seen": [s["name"] for s in STARTERS]})
+        else:
+            self._add_new_starters()
         self.version = time.time()
+
+    def _add_new_starters(self):
+        """Starter skills added in updates appear once (deleted ones stay deleted)."""
+        meta = read_json(META_FILE, {})
+        seen = set(meta.get("seen") or [s["name"] for s in STARTERS[:6] if s["name"] not in
+                                        ("Customer briefing", "Quote builder")])
+        items = self.all()
+        have = {s["name"].lower() for s in items}
+        new = [s for s in STARTERS if s["name"] not in seen and s["name"].lower() not in have]
+        if new:
+            items += new
+            items.sort(key=lambda s: s["name"].lower())
+            write_json(SKILLS_FILE, items)
+        write_json(META_FILE, {"seen": sorted(seen | {s["name"] for s in STARTERS})})
 
     def all(self) -> list:
         data = read_json(SKILLS_FILE, [])
