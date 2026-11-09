@@ -61,7 +61,10 @@ DEFAULTS = {
     "speech_pitch": 0,  # Hz, -20 lower .. +20 higher
     "speech_volume": 100,  # percent
     # Listening: pause (seconds) that counts as "finished talking"
-    "listen_pause": 0.6,
+    "listen_pause": 1.2,
+    "barge_in": True,  # stop talking when you start speaking
+    "barge_sensitivity": "medium",
+    "whisper_beam": 3,  # a little slower, noticeably fewer mishearings
     # Offline voice file in the models folder (setup lets you audition them)
     "voice": "en_GB-cori-high",
     "voice_speed": 1.0,  # below 1 = faster, above 1 = slower
@@ -154,6 +157,10 @@ def _migrate(settings):
         if settings.get("listen_pause") == 0.9:
             settings["listen_pause"] = 0.6
         done.add("fast_listen")
+    if "more_time" not in done:
+        if settings.get("listen_pause", 1.2) < 1.2:
+            settings["listen_pause"] = 1.2
+        done.add("more_time")
     if "fast_email" not in done:
         if settings.get("email_check_min", 2) >= 5:
             settings["email_check_min"] = 2

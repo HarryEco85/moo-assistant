@@ -123,7 +123,8 @@ class MooApp:
     def _load_voice(self):
         from .voice import Ears, Mouth
         self.mouth = Mouth(self.settings)
-        self.ears = Ears(self.settings, on_wake=self._woken)
+        self.ears = Ears(self.settings, on_wake=self._woken, on_barge=self._barged,
+                         is_speaking=lambda: bool(self.mouth and self.mouth.speaking))
         self.ears.start()
         # wait for speech recognition to load (first run downloads the Whisper model)
         for _ in range(600):
@@ -268,15 +269,20 @@ class MooApp:
     def _woken(self):
         self.voice_request()
 
-    def voice_request(self):
+    def _barged(self, preroll):
+        """You started talking over her: stop, and listen to what you're saying."""
+        log.info("Interrupted by voice")
+        self.voice_request(preroll)
+
+    def voice_request(self, preroll=None):
         """Wake word, hotkey or mic button: interrupt Moo if she's talking, then listen."""
         if self.mouth and self.mouth.speaking:
             self.mouth.stop()
-        threading.Thread(target=self._listen_then_answer, daemon=True, name="listen").start()
+        threading.Thread(target=self._listen_then_answer, args=(preroll,), daemon=True, name="listen").start()
 
-    def _listen_then_answer(self):
-        # wait briefly for an interrupted answer to finish stopping
-        if not self.busy.acquire(timeout=2):
+    def _listen_then_answer(self, preroll=None):
+        # wait for an interrupted answer to finish stopping
+        if not self.busy.acquire(timeout=8):
             return
         try:
             if not self.ears or not self.ears.available:
@@ -284,7 +290,7 @@ class MooApp:
                 return
             self.ui.set_state("listening")
             try:
-                text = self.ears.listen()
+                text = self.ears.listen(preroll=preroll)
                 self._heard = self.ears.last_transcribe_s
             except RuntimeError as e:
                 self.ui.add_message("sys", str(e))

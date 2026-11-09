@@ -4,6 +4,7 @@ and Moo's replies go to Microsoft to be spoken.
 """
 import logging
 import os
+import collections
 import queue
 import re
 import sys
@@ -479,9 +480,13 @@ class Ears:
     """One microphone stream. Normally listens for the wake word; when asked,
     records one utterance and transcribes it."""
 
-    def __init__(self, settings, on_wake):
+    def __init__(self, settings, on_wake, on_barge=None, is_speaking=None):
         self.settings = settings
         self.on_wake = on_wake
+        self.on_barge = on_barge  # you started talking over her
+        self.is_speaking = is_speaking or (lambda: False)
+        self._preroll = collections.deque(maxlen=10)  # last ~0.8 s, so your first words aren't lost
+        self._talk = None  # barge-in tracking while she speaks
         self.frames = queue.Queue(maxsize=400)
         self._record_q = queue.Queue()
         self.mode = "wake"  # "wake" or "record" or "off"
@@ -567,9 +572,44 @@ class Ears:
             pass
 
     # ----- wake word -----
+    def _barge(self, frame) -> bool:
+        """While she's talking: did you start speaking over her?
+        Learns how loud her own voice is through the mic, then waits for
+        something clearly louder that lasts a moment (your voice, not hers)."""
+        if not self.settings.get("barge_in", True) or self.mode != "wake":
+            self._talk = None
+            return False
+        if not self.is_speaking():
+            self._talk = None
+            return False
+        rms = float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)))
+        t = self._talk
+        if t is None:
+            t = self._talk = {"start": time.time(), "hist": collections.deque(maxlen=40), "hits": 0}
+        loud = False
+        if time.time() - t["start"] > 0.8 and len(t["hist"]) >= 8:
+            echo = float(np.percentile(list(t["hist"]), 80))
+            sens = {"low": 4.0, "medium": 2.6, "high": 1.6}.get(self.settings.get("barge_sensitivity", "medium"), 2.6)
+            loud = rms > max(echo * sens, 700.0)
+        if loud:
+            t["hits"] += 1
+        else:
+            t["hits"] = 0
+            t["hist"].append(rms)
+        if t["hits"] >= 3:  # about a quarter of a second of you
+            self._talk = None
+            return True
+        return False
+
     def _wake_loop(self):
         while True:
             frame = self.frames.get()
+            self._preroll.append(frame)
+            if self.on_barge and self._barge(frame):
+                pre = list(self._preroll)
+                self._preroll.clear()
+                self.on_barge(pre)
+                continue
             threshold = float(self.settings.get("wake_word_threshold", 0.5))
             enabled = self.settings.get("wake_word_enabled", True)
             if self.mode != "wake" or self.wake_model is None or not enabled:
@@ -586,7 +626,7 @@ class Ears:
     def reload_whisper(self):
         threading.Thread(target=self._load_whisper, daemon=True, name="whisper-reload").start()
 
-    def listen(self, max_seconds=20, start_timeout=6, silence=None) -> str:
+    def listen(self, max_seconds=45, start_timeout=7, silence=None, preroll=None) -> str:
         """Record one utterance (stops when you pause) and return the text."""
         if not self.available:
             raise RuntimeError("No microphone found.")
@@ -594,9 +634,9 @@ class Ears:
             raise RuntimeError("Speech recognition is still loading, give it a moment.")
         if silence is None:
             try:
-                silence = max(0.4, min(float(self.settings.get("listen_pause", 0.9)), 3.0))
+                silence = max(0.4, min(float(self.settings.get("listen_pause", 1.2)), 4.0))
             except (TypeError, ValueError):
-                silence = 0.9
+                silence = 1.2
         self._record_q = queue.Queue()
         # drain stale audio
         while not self.frames.empty():
@@ -605,7 +645,7 @@ class Ears:
             except queue.Empty:
                 break
         self.mode = "record"
-        audio, started = [], False
+        audio, started = list(preroll or []), bool(preroll)
         speech_at = time.time()
         t0 = time.time()
         noise = None
@@ -638,7 +678,8 @@ class Ears:
 
         def transcribe():
             segments, _ = self.whisper.transcribe(
-                pcm, language="en", beam_size=1, vad_filter=True, without_timestamps=True,
+                pcm, language="en", beam_size=int(self.settings.get("whisper_beam", 3) or 1), vad_filter=True,
+                without_timestamps=True, condition_on_previous_text=False,
                 initial_prompt=(self.settings.get("vocabulary") or "").strip() or None)
             return " ".join(seg.text.strip() for seg in segments).strip()
 

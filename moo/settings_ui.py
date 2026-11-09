@@ -285,8 +285,12 @@ class SettingsWindow:
         self._check(t, "wake_word_enabled", "Listen for the wake word", s.get("wake_word_enabled", True))
         self._slider(t, "wake_word_threshold", "Wake word sensitivity", 0.3, 0.85,
                      s.get("wake_word_threshold", 0.5), 0.05, "Hears it easily", "Fewer false starts")
-        self._slider(t, "listen_pause", "How long a pause means you've finished", 0.5, 2.5,
-                     s.get("listen_pause", 0.9), 0.1, "Short", "Long")
+        self._slider(t, "listen_pause", "How long a pause means you've finished", 0.6, 3.0,
+                     s.get("listen_pause", 1.2), 0.1, "Quick", "Plenty of time")
+        self._check(t, "barge_in", "Stop talking when I start speaking", s.get("barge_in", True))
+        self._combo(t, "barge_sensitivity", "How easily I can interrupt her",
+                    [("low", "Low (use if she stops for no reason)"), ("medium", "Medium"),
+                     ("high", "High (use with a headset)")], s.get("barge_sensitivity", "medium"))
         self._entry(t, "hotkey", "Talk shortcut", s.get("hotkey", "ctrl+alt+m"),
                     note="e.g. ctrl+alt+m, ctrl+shift+space, f9")
         self._entry(t, "vocabulary", "Words she should recognise", s.get("vocabulary", ""),
