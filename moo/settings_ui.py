@@ -11,7 +11,7 @@ TEXT_SIZES = ["Small", "Medium", "Large"]
 HUMOUR_CHOICES = [("straight", "Straight: warm, no jokes"), ("light", "Light: the odd dry remark"),
                   ("quirky", "Quirky: witty and playful"), ("comedian", "Full comedian")]
 LENGTH_CHOICES = [("short", "Short and snappy"), ("normal", "Normal"), ("detailed", "Detailed")]
-WHISPER_CHOICES = [("base.en", "Fast (less accurate)"), ("small.en", "Balanced"),
+WHISPER_CHOICES = [("tiny.en", "Fastest (least accurate)"), ("base.en", "Fast"), ("small.en", "Balanced"),
                    ("medium.en", "Most accurate (best with a graphics card)")]
 MODEL_CHOICES = [("claude-haiku-5-5", "Haiku: fast and cheapest"), ("claude-sonnet-5-5", "Sonnet: smarter, about 20x the cost")]
 PLAN_MODEL_CHOICES = [("", "Same as above"), ("claude-sonnet-5-5", "Sonnet: better at long jobs, costs more")]
