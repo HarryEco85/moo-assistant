@@ -525,7 +525,7 @@ class MooApp:
             return "Nothing to remember."
         if yes:
             out = self.brain.memory.remember(fact)
-            return "Noted." if out.startswith("Remembered") else out
+            return "Sorted, I'll remember that." if out.startswith("Remembered") else out
         self.watcher.state.setdefault("declined_facts", []).append(fact)
         self.watcher._save()
         return "Fair enough, I'll forget I noticed."

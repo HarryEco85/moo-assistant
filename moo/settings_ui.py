@@ -269,6 +269,8 @@ class SettingsWindow:
         box.insert("1.0", s.get("personality_notes", ""))
         box.pack(fill="x")
         self.vars["personality_notes"] = box
+        self._entry(t, "banned_words", "Words she must never say", s.get("banned_words", "noted"),
+                    note="Comma separated. You can also just tell her: \"stop saying sorted\".")
         self._entry(t, "home_location", "Home postcode or town", s.get("home_location", ""),
                     note="For weather and drive times, e.g. a postcode or town.")
         self._label(t, "Email sign-off", "Added to emails she drafts for you.")

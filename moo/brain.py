@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 
 from . import extras, files
-from .config import get_api_key, user_name
+from .config import get_api_key, save_settings, user_name
 from .memory import History, Memory, Usage
 from .journal import Journal
 from .skills import Skills
@@ -34,6 +34,8 @@ Sound like a real person talking, not a system reporting:
 - Give a quick view or nudge where it helps: "I'd ring them rather than email, it's been three days." "That one can wait till tomorrow."
 - Small callbacks to earlier in the chat are good. Ask a natural follow-up only when it actually helps.
 - No call-centre phrases, no "great question", no "I hope this helps", no "let me know if you need anything else", no gushing, no robotic summaries like "You have 3 emails. Email 1 is...".
+
+Words {user} never wants to hear from you: {banned}. Never use them in any form, not even once. To confirm something's done, say "Sorted" or "Completed" (or just say what you did). If {user} asks you to stop using a word or phrase, use ban_word straight away so it sticks, and don't argue that it's built in: nothing about how you talk is fixed.
 
 How to address them: call them {user}. That name comes from their settings and beats anything else, including saved memories and how you addressed them earlier in the chat. Never use nicknames like boss, chief, sir or mate unless the extra style instructions below explicitly ask for one. If {user} tells you what to call them, do it straight away, forget any saved memory with a different name or nickname, and remember the new one.
 {humour}
@@ -250,6 +252,10 @@ def _tools():
          "input_schema": {"type": "object", "properties": {
              "query": {"type": "string", "description": "Key words: names, sites, topics"},
              "days": {"type": "integer", "description": "How far back, default 90"}}, "required": ["query"]}},
+        {"name": "ban_word", "description": "Stop using a word or phrase for good (the user dislikes it). Optionally give what to say instead.",
+         "input_schema": {"type": "object", "properties": {
+             "word": {"type": "string"}, "instead": {"type": "string", "description": "e.g. 'sorted'"}},
+             "required": ["word"]}},
         {"name": "log_decision", "description": "Record a decision the user made, in one line (what, and why if given).",
          "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     ]
@@ -257,7 +263,7 @@ def _tools():
 
 # Tools that change Moo's own state in order; never run side by side
 SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
-              "cancel_reminder", "request_approval", "log_decision", "mark_promise_done", "create_email_draft"}
+              "cancel_reminder", "request_approval", "log_decision", "ban_word", "mark_promise_done", "create_email_draft"}
 FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
            (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
            (("vh3_",), "Checking VH3."),
@@ -270,9 +276,9 @@ FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your email
 
 
 FALLBACKS = {"set_reminder": "Reminder's set.", "create_email_draft": "The draft's in your Drafts folder.",
-             "copy_to_clipboard": "It's on your clipboard.", "remember": "Noted, I'll remember that.",
+             "copy_to_clipboard": "It's on your clipboard.", "remember": "Sorted, I'll remember that.",
              "forget": "Forgotten.", "request_approval": "That's waiting for your OK.", "save_skill": "Skill saved.",
-             "open_file": "It's open.", "cancel_reminder": "Reminder cancelled.", "log_decision": "Noted.",
+             "open_file": "It's open.", "cancel_reminder": "Reminder cancelled.", "log_decision": "Sorted, that's logged.",
              "mark_promise_done": "Ticked off.", "send_to_phone": "Sent it to your phone."}
 
 
@@ -536,6 +542,8 @@ class Brain:
             if name == "search_past":
                 self.status("Looking back through our chats")
                 return self.journal.search(args.get("query", ""), args.get("days", 90))
+            if name == "ban_word":
+                return self.ban_word(args.get("word", ""), args.get("instead", ""))
             if name == "log_decision":
                 return self.journal.log_decision(args["text"])
             return f"Unknown tool {name}."
@@ -569,6 +577,37 @@ class Brain:
             except Exception:
                 log.exception("Journal write failed")
             return reply
+
+    def _banned(self) -> list:
+        raw = self.settings.get("banned_words", "noted")
+        return [w.strip() for w in re.split(r"[,\n]", raw or "") if w.strip()]
+
+    def ban_word(self, word, instead="") -> str:
+        word = (word or "").strip().strip('"\'')
+        if not word:
+            return "No word given."
+        words = self._banned()
+        if word.lower() not in [w.lower() for w in words]:
+            words.append(word)
+        self.settings["banned_words"] = ", ".join(words)
+        if instead.strip():
+            swaps = dict(self.settings.get("word_swaps") or {})
+            swaps[word.lower()] = instead.strip()
+            self.settings["word_swaps"] = swaps
+        save_settings(self.settings)
+        return f"'{word}' is banned from now on." + (f" Saying '{instead}' instead." if instead else "")
+
+    def _unban(self, sentence: str) -> str:
+        """Last line of defence: swap banned words out of what she says."""
+        swaps = {"noted": "sorted"}
+        swaps.update({k.lower(): v for k, v in (self.settings.get("word_swaps") or {}).items()})
+        for w in self._banned():
+            new = swaps.get(w.lower())
+            pattern = re.compile(rf"\b{re.escape(w)}\b", re.I)
+            if new is None:
+                continue
+            sentence = pattern.sub(lambda m: new.capitalize() if m.group(0)[0].isupper() else new, sentence)
+        return sentence
 
     def _decisions(self) -> str:
         try:
@@ -632,7 +671,8 @@ class Brain:
                                    now="shown in square brackets at the start of each message from the user",
                                    memory=self.memory.as_prompt(),
                                    skills=self.skills.as_prompt(),
-                                   decisions=self._decisions()),
+                                   decisions=self._decisions(),
+                                   banned=", ".join(f'"{w}"' for w in self._banned()) or "none"),
             "cache_control": {"type": "ephemeral"},
         }]
         stamped = f"[{datetime.now().strftime('%A %d %B %Y, %H:%M')}] {text}"
@@ -643,7 +683,13 @@ class Brain:
             tools = tools + [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3,
                               "user_location": {"type": "approximate", "country": "GB", "timezone": "Europe/London"}}]
         spoken = []
-        splitter = _SentenceSplitter(lambda sent: (spoken.append(sent), on_sentence and on_sentence(sent)))
+        def emit(sent):
+            sent = self._unban(sent)
+            if sent.strip():
+                spoken.append(sent)
+                if on_sentence:
+                    on_sentence(sent)
+        splitter = _SentenceSplitter(emit)
         rounds = 0
         used = []
         plan_at_start = self.plan

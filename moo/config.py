@@ -27,7 +27,9 @@ DEFAULTS = {
     # Personality
     "reply_length": "normal",  # short / normal / detailed
     "humour": "quirky",  # straight / light / quirky / comedian
-    "personality_notes": "",  # free text, e.g. "dry humour, call me boss"
+    "personality_notes": "",
+    "banned_words": "noted",  # words she must never say (comma separated)
+    "word_swaps": {"noted": "sorted"},  # free text, e.g. "dry humour, call me boss"
     "about_you": "",  # your job and business, so she understands your world
     "vocabulary": "",  # words she should recognise when you speak (names, trade terms)
     "home_location": "",  # postcode or town, for weather and travel times
@@ -162,6 +164,12 @@ def _migrate(settings):
         if settings.get("listen_pause", 1.2) < 1.2:
             settings["listen_pause"] = 1.2
         done.add("more_time")
+    if "ban_noted" not in done:
+        words = [w.strip().lower() for w in (settings.get("banned_words") or "").split(",") if w.strip()]
+        if "noted" not in words:
+            settings["banned_words"] = ", ".join(([settings["banned_words"]] if settings.get("banned_words") else [])
+                                                 + ["noted"])
+        done.add("ban_noted")
     if "longer_replies" not in done:
         if settings.get("max_tokens", 2048) <= 1024:
             settings["max_tokens"] = 2048
