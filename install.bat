@@ -6,6 +6,18 @@ echo.
 echo  ===  Installing Moo Lite  ===
 echo.
 
+rem ---- 0. Refuse to run from inside the zip (Windows runs it from a temp folder) ----
+echo "%~dp0" | findstr /i /c:"\Temp\" /c:".zip" >nul
+if %errorlevel%==0 (
+  echo.
+  echo  It looks like you opened install.bat straight from the zip file.
+  echo  Please close this, right-click the zip, choose "Extract All...",
+  echo  extract to C:\Moo, then run install.bat from that folder.
+  echo.
+  pause
+  exit /b 1
+)
+
 rem ---- 1. Find Python 3.12 or 3.11 (installs 3.12 if missing) ----
 set "PY="
 py -3.12 -c "import sys" >nul 2>&1 && set "PY=py -3.12"
