@@ -46,7 +46,7 @@ DEFAULTS = {
     "always_on_top": False,
     # The brain. Haiku is cheapest; switch to "claude-sonnet-5-5" for harder questions.
     "model": "claude-haiku-5-5",
-    "max_tokens": 1024,
+    "max_tokens": 2048,
     # Voice: "natural" = Microsoft natural voices (free, needs internet);
     # "piper" = offline voice. Natural falls back to offline automatically.
     "tts_engine": "natural",
@@ -162,6 +162,10 @@ def _migrate(settings):
         if settings.get("listen_pause", 1.2) < 1.2:
             settings["listen_pause"] = 1.2
         done.add("more_time")
+    if "longer_replies" not in done:
+        if settings.get("max_tokens", 2048) <= 1024:
+            settings["max_tokens"] = 2048
+        done.add("longer_replies")
     if "wrap_on" not in done:
         settings["wrap_up"] = True
         done.add("wrap_on")

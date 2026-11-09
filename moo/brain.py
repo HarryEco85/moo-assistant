@@ -59,7 +59,8 @@ Writing for {user} (emails, replies, rewrites, quote or RAMS wording):
 - For emails, the first time in a conversation, if Outlook works, glance at a few of their recent sent emails (list_emails folder sent, hours 168, limit 5) to match their tone and length.
 - Sign emails off with:
 {signoff}
-- NEVER read written pieces aloud. Put the finished text on the clipboard with copy_to_clipboard, and if it's an email, also save it with create_email_draft (as a reply when it answers an email you found). Then say one short line, e.g. "Done, it's open on your screen and in Drafts." or "It's on your clipboard."
+- NEVER read written pieces aloud. Put the finished text on the clipboard with copy_to_clipboard, and if it's an email, also save it with create_email_draft (as a reply when it answers an email you found). Then say one short, natural line about it, e.g. "That's in your Drafts and open on screen, have a read before it goes." or "It's on your clipboard, ready to paste."
+- After doing anything (a reminder, a draft, a search), always tell {user} in a proper sentence what you did or found. Never answer with just "Done", "OK" or "Sorted"; say what's done.
 - "This", "what I've copied", "the text I copied" means the clipboard: use read_clipboard.
 
 Tools:
@@ -268,6 +269,20 @@ FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your email
            (("web_search",), "Let me look that up.")]
 
 
+FALLBACKS = {"set_reminder": "Reminder's set.", "create_email_draft": "The draft's in your Drafts folder.",
+             "copy_to_clipboard": "It's on your clipboard.", "remember": "Noted, I'll remember that.",
+             "forget": "Forgotten.", "request_approval": "That's waiting for your OK.", "save_skill": "Skill saved.",
+             "open_file": "It's open.", "cancel_reminder": "Reminder cancelled.", "log_decision": "Noted.",
+             "mark_promise_done": "Ticked off.", "send_to_phone": "Sent it to your phone."}
+
+
+def _fallback(used):
+    for name in reversed(used):
+        if name in FALLBACKS:
+            return FALLBACKS[name]
+    return "All sorted." if used else "Sorry, I lost my train of thought there. Could you ask me again?"
+
+
 def _filler(calls):
     """A short line to say straight away when a reply needs a lookup first."""
     for b in calls:
@@ -359,9 +374,9 @@ class Brain:
                     "this PC; Gmail needs an app password in Settings > Accounts. Tell the user briefly.")
         return "\n\n".join(parts)
 
-    def _stream(self, model, system, tools, messages, splitter):
-        with self.client().messages.stream(model=model, max_tokens=int(self.settings.get("max_tokens", 1024)),
-                                           system=system, tools=tools, messages=messages) as stream:
+    def _stream(self, model, system, tools, messages, splitter, **extra):
+        with self.client().messages.stream(model=model, max_tokens=int(self.settings.get("max_tokens", 2048)),
+                                           system=system, tools=tools, messages=messages, **extra) as stream:
             for event in stream:
                 if event.type == "content_block_start" and getattr(event.content_block, "type", "") == "server_tool_use":
                     self.status("Searching the web")
@@ -630,6 +645,7 @@ class Brain:
         spoken = []
         splitter = _SentenceSplitter(lambda sent: (spoken.append(sent), on_sentence and on_sentence(sent)))
         rounds = 0
+        used = []
         plan_at_start = self.plan
         while True:
             rounds += 1
@@ -671,10 +687,30 @@ class Brain:
                 filler = _filler(calls)  # say something while she looks it up
                 if filler:
                     on_sentence(filler)
+            used += [b.name for b in calls]
             messages.append({"role": "user", "content": self._run_tools(calls)})
-        reply = " ".join(spoken).strip() or "Done."
+        if not " ".join(spoken).strip():
+            # She did the work but said nothing: ask her, once, to actually tell you.
+            self._say_something(model, system, tools, messages, splitter)
+        reply = " ".join(spoken).strip() or _fallback(used)
         self.history.add_exchange(text, reply)
         return reply
+
+    def _say_something(self, model, system, tools, messages, splitter):
+        nudge = {"type": "text", "text": "(You haven't said anything to the user yet. Reply to them now, in your "
+                                         "own voice, about what you did or found. Don't just say 'done'.)"}
+        last = messages[-1]
+        content = last["content"]
+        content = ([{"type": "text", "text": content}] if isinstance(content, str) else list(content)) + [nudge]
+        msgs = messages[:-1] + [{"role": last["role"], "content": content}]
+        try:
+            resp = self._stream(model, system, tools, msgs, splitter, tool_choice={"type": "none"})
+            splitter.flush()
+            u = resp.usage
+            self.usage.add(model, u.input_tokens + (getattr(u, "cache_creation_input_tokens", 0) or 0),
+                           u.output_tokens, getattr(u, "cache_read_input_tokens", 0) or 0)
+        except Exception as e:
+            log.warning("Follow-up reply failed: %s", e)
 
     def _run_tools(self, calls) -> list:
         """Run this round's tools; lookups run side by side so several checks take as long as one."""
