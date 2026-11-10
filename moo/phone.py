@@ -119,7 +119,10 @@ class Phone:
                        files={"voice": ("moo.ogg", data, "audio/ogg")})
 
     def notify(self, text):
-        """Push something to the phone (reminders, briefing) if paired."""
+        """Push something to the phone (reminders, briefing) if paired; the phone app gets it too."""
+        mobile = getattr(self.app, "mobile", None)
+        if mobile:
+            threading.Thread(target=mobile.push_text, args=(text,), daemon=True).start()
         if self.s.get("phone_enabled") and self.paired_id() and self.token():
             try:
                 self.send_text(text)
@@ -128,6 +131,11 @@ class Phone:
 
     def send_approval(self, item):
         """An approval request with Approve / Reject buttons."""
+        mobile = getattr(self.app, "mobile", None)
+        if mobile and mobile.configured():
+            mobile.push_state()
+            mobile.post("approval", f"Needs your OK: {item['title']}",
+                        meta={"id": item["id"], "title": item["title"], "detail": item.get("detail", "")})
         if not (self.s.get("phone_enabled") and self.paired_id() and self.token()):
             return
         text = f"Needs your OK: {item['title']}" + (f"\n{item['detail']}" if item.get("detail") else "")
@@ -272,7 +280,7 @@ class Phone:
                 continue
             self.send_text(f"{label}:\n\n{body}", chat_id)
         self.send_text(reply, chat_id)
-        if voice_in and self.s.get("phone_voice_replies", True):
+        if (voice_in or self.s.get("phone_voice_always", False)) and self.s.get("phone_voice_replies", True):
             try:
                 self._call("sendChatAction", chat_id=chat_id, action="record_voice")
                 self.send_voice(reply, chat_id)

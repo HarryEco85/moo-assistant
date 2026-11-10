@@ -94,7 +94,13 @@ DEFAULTS = {
     "phone_enabled": False,
     "telegram_user_id": 0,
     "telegram_pair_code": "",
-    "phone_voice_replies": True,  # voice note in, voice note back
+    "phone_voice_replies": True,
+    "phone_voice_always": False,
+    "mobile_url": "",  # the phone app's Supabase project
+    "mobile_key": "",
+    "mobile_enabled": True,
+    "mobile_voice": True,  # speak replies in the phone app
+    "mobile_app_url": "",  # voice note in, voice note back
     "phone_reminders": True,
     "phone_briefing": True,
     # Proactive: she keeps an eye on things

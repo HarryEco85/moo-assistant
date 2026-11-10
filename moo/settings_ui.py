@@ -26,7 +26,7 @@ class SettingsWindow:
         win.title(f"{self.s.get('assistant_name', 'Moo')} settings")
         win.configure(bg=BG)
         h = min(760, win.winfo_screenheight() - 120)
-        win.geometry(f"680x{h}")
+        win.geometry(f"860x{h}")
         win.minsize(520, 420)
         win.transient(ui.root)
         self._style()
@@ -47,7 +47,8 @@ class SettingsWindow:
         self.tab_pro = self._tab(nb, "Proactive")
         self.tab_skills = self._tab(nb, "Skills")
         self.tab_accounts = self._tab(nb, "Accounts")
-        self.tab_phone = self._tab(nb, "Phone")
+        self.tab_phone = self._tab(nb, "Telegram")
+        self.tab_app = self._tab(nb, "Phone app")
         self.tab_system = self._tab(nb, "System")
         self._build_voice()
         self._build_look()
@@ -57,6 +58,7 @@ class SettingsWindow:
         self._build_skills()
         self._build_accounts()
         self._build_phone()
+        self._build_app()
         self._build_system()
 
         win.bind_all("<MouseWheel>", self._wheel, add="+")
@@ -418,6 +420,91 @@ class SettingsWindow:
                           else "Free tier unlocks more British voices. See the README for setup."))
         self._entry(t, "azure_region", "Azure region", s.get("azure_region", "uksouth"))
 
+    # ---------- phone app ----------
+    def _build_app(self):
+        t, s = self.tab_app, self.s
+        tk.Label(t, text="Moo as an app on your phone: tap to talk, she answers in her voice. One-off setup, "
+                         "about 5 minutes, using a free Supabase project.", bg=SURFACE, fg=MUTED, font=(FONT, 9),
+                 anchor="w", justify="left", wraplength=760).pack(fill="x", pady=(10, 4))
+        steps = ("1. Make a free account at supabase.com and create a project called Moo (region: London).\n"
+                 "2. Click 'Copy setup script' below. In Supabase open SQL Editor, New query, paste, press Run.\n"
+                 "3. In Supabase go to Project Settings, then API Keys (or Data API). Copy the Project URL and the "
+                 "publishable key (or 'anon public' key) into the boxes below.\n"
+                 "4. Click Connect, then scan the QR code with your phone's camera.\n"
+                 "5. On your phone, open the browser menu (⋮) and choose 'Add to Home screen' or 'Install app'.")
+        tk.Label(t, text=steps, bg=SURFACE, fg=TEXT, font=(FONT, 9), anchor="w", justify="left",
+                 wraplength=760).pack(fill="x", pady=(2, 8))
+        row = tk.Frame(t, bg=SURFACE)
+        row.pack(fill="x", pady=(0, 6))
+        self._button(row, "Copy setup script", self._copy_sql).pack(side="left")
+        self._entry(t, "mobile_url", "Project URL", s.get("mobile_url", ""), note="Looks like https://abcdefg.supabase.co")
+        self._entry(t, "mobile_key", "Publishable (anon) key", s.get("mobile_key", ""),
+                    note="Starts sb_publishable_ or eyJ. This one is safe to share with the app.")
+        self._check(t, "mobile_voice", "Speak replies in the app (her voice)", s.get("mobile_voice", True))
+        row = tk.Frame(t, bg=SURFACE)
+        row.pack(fill="x", pady=(10, 4))
+        self._button(row, "Connect", self._connect_app, primary=True).pack(side="left")
+        self._button(row, "Show QR code", self._show_qr).pack(side="left", padx=8)
+        mob = getattr(self.app, "mobile", None)
+        self.app_status = tk.Label(t, text=f"Status: {mob.status if mob else 'off'}", bg=SURFACE, fg=FAINT,
+                                   font=(FONT, 9), anchor="w")
+        self.app_status.pack(fill="x", pady=(6, 0))
+
+    def _copy_sql(self):
+        from pathlib import Path
+        sql = (Path(__file__).resolve().parent.parent / "phone_app" / "setup.sql").read_text(encoding="utf-8")
+        self.win.clipboard_clear()
+        self.win.clipboard_append(sql)
+        messagebox.showinfo("Moo", "Setup script copied. In Supabase: SQL Editor, New query, paste (Ctrl+V), Run.",
+                            parent=self.win)
+
+    def _connect_app(self):
+        for key in ("mobile_url", "mobile_key"):
+            self.s[key] = self.vars[key].get().strip()
+        self.s["mobile_voice"] = bool(self.vars["mobile_voice"].get())
+        save_settings(self.s)
+        self.app_status.configure(text="Status: connecting…")
+
+        def run():
+            out = self.app.mobile.connect()
+            def done():
+                self.app_status.configure(text=f"Status: {self.app.mobile.status}")
+                messagebox.showinfo("Moo", out, parent=self.win)
+                if out.startswith("Connected"):
+                    self._show_qr()
+            self.win.after(0, done)
+        threading.Thread(target=run, daemon=True).start()
+
+    def _show_qr(self):
+        mob = self.app.mobile
+        if not (self.s.get("mobile_url") and self.s.get("mobile_key")):
+            messagebox.showinfo("Moo", "Connect first.", parent=self.win)
+            return
+        from PIL import ImageTk
+        top = tk.Toplevel(self.win)
+        top.title("Scan with your phone")
+        top.configure(bg=BG)
+        tk.Label(top, text="Point your phone's camera at this and tap the link", bg=BG, fg=TEXT,
+                 font=(FONT, 11, "bold")).pack(padx=24, pady=(20, 10))
+        try:
+            img = ImageTk.PhotoImage(mob.qr_image(320))
+            lab = tk.Label(top, image=img, bg=BG)
+            lab.image = img
+        except Exception:
+            lab = tk.Label(top, text="(QR code unavailable: use 'Copy link instead' below)", bg=BG, fg=MUTED,
+                           font=(FONT, 10))
+        lab.pack(padx=24)
+        tk.Label(top, text="Keep this private: the code lets that phone talk to Moo.", bg=BG, fg=FAINT,
+                 font=(FONT, 9)).pack(pady=(10, 4))
+
+        def copy():
+            top.clipboard_clear()
+            top.clipboard_append(mob.pair_link())
+            messagebox.showinfo("Moo", "Link copied. Send it to yourself and open it on the phone.", parent=top)
+        b = self._button(top, "Copy link instead", copy)
+        b.configure(bg=SURFACE_HI)
+        b.pack(pady=(4, 20))
+
     def _build_phone(self):
         t, s, phone = self.tab_phone, self.s, self.app.phone
         tk.Label(t, text="Message or voice-note her from your phone with Telegram. Works anywhere, as long as "
@@ -438,6 +525,8 @@ class SettingsWindow:
             tk.Label(t, text=phone.pairing_code(), bg=SURFACE_HI, fg=TEXT, font=(FONT, 20, "bold"), padx=16,
                      pady=6).pack(anchor="w")
         self._check(t, "phone_voice_replies", "Reply to voice notes with a voice note", s.get("phone_voice_replies", True))
+        self._check(t, "phone_voice_always", "Send a voice note with every reply (even to typed messages)",
+                    s.get("phone_voice_always", False))
         self._check(t, "phone_reminders", "Send reminders to my phone", s.get("phone_reminders", True))
         self._check(t, "phone_briefing", "Send the morning briefing to my phone", s.get("phone_briefing", True))
         if paired:

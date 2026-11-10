@@ -127,6 +127,21 @@ When Moo thinks something would help but you didn't ask for it, like drafting a 
 
 For anything with several steps (an inbox sweep, prepping for tomorrow, a weekly summary) she writes a short plan, works through it with live progress in the office view, then checks her own work (drafts really saved, numbers adding up, nothing missed) before she reports back. You can give big jobs a smarter brain in Settings > Accounts > "Brain for big jobs".
 
+## The phone app
+
+Moo as an app on your phone: tap the mic and talk, and she answers in her own voice. It has your glance cards, Approve and Reject buttons, photos ("is this cover OK?"), and your chat history. It works anywhere on 4G as long as Moo is running on your PC.
+
+Setup (once, about 5 minutes) is in **Settings > Phone app**:
+1. Make a free account at supabase.com and create a project called Moo (region London).
+2. Click **Copy setup script**, then in Supabase open **SQL Editor > New query**, paste and press **Run**.
+3. Copy the **Project URL** and the **publishable** (or "anon public") key from Supabase's API settings into Moo, and click **Connect**.
+4. Scan the QR code with your phone's camera and open the link.
+5. In the browser menu (⋮) choose **Add to Home screen** / **Install app**.
+
+Messages pass through your own Supabase project, locked behind a secret pairing code that only your PC and phone have. Voice clips and photos are deleted after a day, and messages after a fortnight.
+
+The app lives at https://harryeco85.github.io/moo-assistant/ (it's useless without your pairing code). If that link shows a 404, turn on GitHub Pages once: repo Settings > Pages > Branch: gh-pages, folder / (root) > Save.
+
 ## Meeting and call notes
 
 Say "Hey Moo, take notes" (or "record this meeting"). A red **Taking notes** badge shows in her window. When you're done, say "Hey Moo, stop notes" or press **Stop notes**. She writes up tidy notes (summary, key points, decisions, actions, open questions), saves them with the full transcript in **Documents > Moo Notes**, logs the decisions, sets reminders for your actions, and queues a follow-up email for your OK.

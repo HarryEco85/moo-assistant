@@ -62,6 +62,8 @@ class MooApp:
         from .proactive import Watcher
         from .approvals import Approvals
         self.phone = Phone(self)
+        from .mobile import Mobile
+        self.mobile = Mobile(self)
         self.watcher = Watcher(self)
         self.approvals = Approvals()
         self.perf = {"date": "", "replies": 0, "secs": 0.0, "plans": 0}
@@ -79,6 +81,7 @@ class MooApp:
         self._footer()
         self.pending_update = None
         self.phone.start()
+        self.mobile.start()
         self.watcher.start()
         if self.settings.get("auto_update", True):
             threading.Thread(target=self._check_updates, args=(True,), daemon=True, name="update-check").start()
@@ -581,8 +584,8 @@ class MooApp:
                          f"; wake word {'on' if s.get('wake_word_enabled', True) and self.ears.wake_phrase else 'off'}")
         return "\n".join(lines)
 
-    def ask_from_phone(self, text, heard=False, images=None):
-        """A message from Telegram: answer in text (no speaking on the PC)."""
+    def ask_from_phone(self, text, heard=False, images=None, source="telegram"):
+        """A message from Telegram or the phone app: answer without speaking on the PC."""
         drafts = []
         self._phone_cards = []
         if not self.busy.acquire(timeout=90):
@@ -594,10 +597,14 @@ class MooApp:
             return self.answer_memory(bool(YES.match(text.strip()))), drafts
         try:
             self.brain.show_draft = lambda body, label: (drafts.append((label, body)), old_show(body, label))
-            self.ui.add_message("You", f"(phone) {text}")
+            self.ui.add_message("You", f"({'app' if source == 'app' else 'phone'}) {text}")
             self.ui.set_state("thinking", "Message from your phone")
             who = user_name(self.settings)
-            if heard:  # van mode: they're likely driving, the answer will be played back as a voice note
+            if source == "app":
+                note = (f"[From the {self.settings.get('assistant_name', 'Moo') or 'Moo'} app on {who}'s phone. "
+                        "Your reply is spoken aloud to them in your voice and shown on screen: keep it short and "
+                        "natural, no long lists (offer to send details instead). Don't open files on the PC.] ")
+            elif heard:  # van mode: they're likely driving, the answer will be played back as a voice note
                 note = (f"[Voice note from {who}'s phone; they're probably driving. Answer in one to three short "
                         "spoken sentences, no lists, no reading out long details (offer to text them instead). "
                         "Don't open files on the PC.] ")
@@ -698,7 +705,7 @@ class MooApp:
         if notify and self.settings.get("alerts_to_phone", True):
             threading.Thread(target=self.phone.send_approval, args=(item,), daemon=True).start()
 
-    def approve(self, aid, from_phone=False):
+    def approve(self, aid, from_phone=False, from_app=False):
         item = self.approvals.claim(aid)
         if not item:
             return False
@@ -720,7 +727,9 @@ class MooApp:
                     reply = f"Sorry, that didn't work: {str(e)[:150]}"
                     self.approvals.set(aid, "failed", reply)
                 self.ui.add_message("Moo", reply)
-                if from_phone:
+                if from_app:
+                    self.mobile.say(reply)
+                elif from_phone:
                     self.phone.notify(reply)
                 elif self.mouth and self.mouth.voice and self.settings.get("speak_aloud", True):
                     self.say(reply, show=False)
@@ -787,6 +796,7 @@ class MooApp:
         try:
             self.reminders.stop()
             self.phone.stop()
+            self.mobile.stop()
             self.watcher.stop()
             if self.mouth:
                 self.mouth.stop()
