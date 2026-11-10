@@ -252,6 +252,9 @@ def _tools():
          "input_schema": {"type": "object", "properties": {
              "query": {"type": "string", "description": "Key words: names, sites, topics"},
              "days": {"type": "integer", "description": "How far back, default 90"}}, "required": ["query"]}},
+        {"name": "moo_update", "description": "Check whether there's a newer version of Moo (this assistant) or install it. Moo restarts itself after installing.",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": ["check", "install"]}}, "required": ["action"]}},
         {"name": "ban_word", "description": "Stop using a word or phrase for good (the user dislikes it). Optionally give what to say instead.",
          "input_schema": {"type": "object", "properties": {
              "word": {"type": "string"}, "instead": {"type": "string", "description": "e.g. 'sorted'"}},
@@ -263,7 +266,7 @@ def _tools():
 
 # Tools that change Moo's own state in order; never run side by side
 SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
-              "cancel_reminder", "request_approval", "log_decision", "ban_word", "mark_promise_done", "create_email_draft"}
+              "cancel_reminder", "request_approval", "log_decision", "ban_word", "moo_update", "mark_promise_done", "create_email_draft"}
 FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
            (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
            (("vh3_",), "Checking VH3."),
@@ -313,6 +316,7 @@ class Brain:
         self.approvals = None  # the approval queue, set by the app
         self.on_approval = lambda item: None  # app shows new requests on the PC and phone
         self.on_plan = lambda plan: None  # app shows plan progress
+        self.on_update = lambda action: "Updates aren't available here."
         self.plan = None
         self.skills = Skills()
         self.journal = Journal()
@@ -567,6 +571,8 @@ class Brain:
             if name == "search_past":
                 self.status("Looking back through our chats")
                 return self.journal.search(args.get("query", ""), args.get("days", 90))
+            if name == "moo_update":
+                return self.on_update(args.get("action", "check"))
             if name == "ban_word":
                 return self.ban_word(args.get("word", ""), args.get("instead", ""))
             if name == "log_decision":

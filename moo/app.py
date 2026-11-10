@@ -108,6 +108,22 @@ class MooApp:
         self.ui.add_action(f"Install version {ver}", self.install_update)
         self.say(f"There's an update available. {notes} Say install the update, or click the button.", show=False)
 
+    def update_tool(self, action) -> str:
+        """Moo's own update check/install, for when you ask her (PC or phone)."""
+        from . import __version__, updater
+        try:
+            ver, notes = updater.check(self.settings.get("update_repo", "HarryEco85/moo-assistant"))
+        except Exception as e:
+            return f"Couldn't check for updates ({str(e)[:80]}). She's on version {__version__}."
+        if not ver:
+            return f"Already on the latest version ({__version__})."
+        self.pending_update = ver
+        if action == "install":
+            threading.Timer(4, self.install_update).start()  # after she's said so
+            return (f"Installing version {ver} now ({notes}). Tell the user it takes about a minute and you'll "
+                    "restart yourself; on their phone you'll be back shortly.")
+        return f"Version {ver} is available (currently {__version__}): {notes} Ask if they want it installed."
+
     def install_update(self):
         if getattr(self, "_updating", False):
             return
@@ -139,6 +155,7 @@ class MooApp:
         self.brain.approvals = self.approvals
         self.brain.on_approval = self.show_approval
         self.brain.on_plan = self._plan_changed
+        self.brain.on_update = self.update_tool
 
     def _load_voice(self):
         from .voice import Ears, Mouth
