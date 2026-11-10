@@ -329,6 +329,8 @@ class MooApp:
                 self.ui.add_message("sys", "No microphone available. Type your question instead.")
                 return
             self.ui.set_state("listening")
+            if self.brain:
+                self.brain.warm()
             try:
                 text = self.ears.listen(preroll=preroll)
                 self._heard = self.ears.last_transcribe_s
@@ -584,7 +586,7 @@ class MooApp:
                          f"; wake word {'on' if s.get('wake_word_enabled', True) and self.ears.wake_phrase else 'off'}")
         return "\n".join(lines)
 
-    def ask_from_phone(self, text, heard=False, images=None, source="telegram"):
+    def ask_from_phone(self, text, heard=False, images=None, source="telegram", on_sentence=None):
         """A message from Telegram or the phone app: answer without speaking on the PC."""
         drafts = []
         self._phone_cards = []
@@ -614,7 +616,7 @@ class MooApp:
             if images:
                 note += "[They've attached a photo.] "
             try:
-                reply = self.brain.ask(note + text, channel="phone", images=images or None)
+                reply = self.brain.ask(note + text, on_sentence=on_sentence, channel="phone", images=images or None)
                 self._count_reply(None)
             except Exception as e:
                 log.exception("Phone request failed")

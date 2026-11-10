@@ -418,8 +418,33 @@ class Brain:
             key = get_api_key()
             if not key:
                 raise RuntimeError("No Claude API key set. Use Settings, or run setup again.")
-            self._client = anthropic.Anthropic(api_key=key)
+            # keep the connection open between questions (the default drops it after 5 seconds,
+            # so every question paid for a fresh secure connection first)
+            try:
+                try:
+                    import httpx2 as hx  # newer SDKs
+                except ImportError:
+                    import httpx as hx
+                http = anthropic.DefaultHttpxClient(
+                    limits=hx.Limits(max_connections=100, max_keepalive_connections=10, keepalive_expiry=600))
+                self._client = anthropic.Anthropic(api_key=key, http_client=http, max_retries=2)
+            except Exception as e:
+                log.info("Keep-alive client unavailable (%s); using the default", e)
+                self._client = anthropic.Anthropic(api_key=key)
         return self._client
+
+    def warm(self):
+        """Open the connection to Claude early (when you start talking), so the reply starts sooner."""
+        if time.time() - getattr(self, "_warmed", 0) < 45:
+            return
+        self._warmed = time.time()
+
+        def go():
+            try:
+                self.client().models.list(limit=1)
+            except Exception as e:
+                log.debug("Warm-up failed: %s", e)
+        threading.Thread(target=go, daemon=True, name="warm").start()
 
     # ---------- tools ----------
     def _run_tool(self, name, args) -> str:

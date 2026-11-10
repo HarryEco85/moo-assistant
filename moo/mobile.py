@@ -11,9 +11,11 @@ PC side: every second or so, pick up anything you said in the app, answer it
 import base64
 import io
 import logging
+import queue
 import secrets
 import threading
 import time
+import uuid
 from urllib.parse import quote
 
 import numpy as np
@@ -53,6 +55,7 @@ class Mobile:
         self._thread = None
         self._last_state = 0
         self._lock = threading.Lock()
+        self._poll_every = 0.6
 
     @property
     def s(self):
@@ -174,7 +177,7 @@ class Mobile:
                     log.warning("Phone app link: %s", e)
                 stop.wait(min(30, 2 * fails))
                 continue
-            stop.wait(1.2)
+            stop.wait(self._poll_every)
 
     # ---------- sending ----------
     def post(self, kind, body="", audio=None, mime=None, meta=None):
@@ -284,8 +287,15 @@ class Mobile:
             body = body or "What do you make of this photo?"
         if not body:
             return
-        reply, extras = self.app.ask_from_phone(body, images=images, source="app")
-        self.say(reply)
+        rid = uuid.uuid4().hex[:8]
+        speaker = _Speaker(self, rid) if (self.s.get("mobile_voice", True) and self.app.mouth) else None
+        reply, extras = self.app.ask_from_phone(body, images=images, source="app",
+                                                on_sentence=speaker.add if speaker else None)
+        spoke = speaker.finish() if speaker else False
+        if spoke:
+            self.post("text", reply, meta={"rid": rid, "streamed": True})
+        else:
+            self.say(reply)
         for label, content in extras:
             if label == "__image__":
                 self.post("image", "", base64.b64encode(content).decode(), "image/png")
@@ -303,3 +313,47 @@ class Mobile:
             segs, _ = ears.whisper.transcribe(pcm, language="en", beam_size=3, vad_filter=True,
                                               initial_prompt=(self.s.get("vocabulary") or "").strip() or None)
             return " ".join(s.text.strip() for s in segs).strip()
+
+
+class _Speaker:
+    """Speaks a reply into the phone app as it's written: the first sentence goes out straight away,
+    the rest in batches, so she starts talking long before the whole answer is ready."""
+
+    def __init__(self, mobile, rid):
+        self.m, self.rid = mobile, rid
+        self.q = queue.Queue()
+        self.sent = 0
+        self.t = threading.Thread(target=self._run, daemon=True, name="app-speech")
+        self.t.start()
+
+    def add(self, sentence):
+        if sentence and sentence.strip():
+            self.q.put(sentence.strip())
+
+    def finish(self) -> bool:
+        """Wait for the last bit to go; True if anything was spoken."""
+        self.q.put(None)
+        self.t.join(timeout=120)
+        return self.sent > 0
+
+    def _run(self):
+        done = False
+        while not done:
+            first = self.q.get()
+            if first is None:
+                return
+            batch = [first]
+            while True:  # whatever else has arrived while the last chunk was being spoken goes together
+                try:
+                    nxt = self.q.get_nowait()
+                except queue.Empty:
+                    break
+                if nxt is None:
+                    done = True
+                    break
+                batch.append(nxt)
+            text = " ".join(batch)
+            audio = self.m._voice(text)
+            if audio:
+                self.m.post("speech", text, audio, "audio/mp4", meta={"rid": self.rid, "seq": self.sent})
+                self.sent += 1
