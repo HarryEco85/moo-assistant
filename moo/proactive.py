@@ -180,7 +180,8 @@ class Watcher:
                 for worker, job in (("meetings", self._meetings), ("email", self._emails),
                                     ("promises", self._scan_promises), ("promises", self._promise_reminders),
                                     ("clashes", self._clash_check), ("vh3", self._vh3_check),
-                                    ("waiting", self._waiting), ("wrap", self._wrap)):
+                                    ("waiting", self._waiting), ("wrap", self._wrap),
+                                    ("car", self._car_jobs), ("football", self._football)):
                     try:
                         job()
                     except Exception as e:
@@ -190,6 +191,41 @@ class Watcher:
             if self._wake.is_set():
                 self._wake.clear()
                 self._stop.wait(3)  # give Outlook a moment to file it
+
+    # ---------- the car and the football ----------
+    def _car_jobs(self):
+        brain = self.app.brain
+        if not brain.car.enabled:
+            return
+        for action, result in brain.car.due():
+            self.alert(f"Car ({action.replace('_', ' ')}): {result}", "Car", speak=False)
+
+    def _football(self):
+        team = (self.s.get("favourite_team") or "").strip()
+        if not team or not self.s.get("football_alerts", True):
+            return
+        if time.time() - getattr(self, "_last_football", 0) < 900:  # every 15 minutes is plenty
+            return
+        self._last_football = time.time()
+        from .football import today_and_finished
+        today, done, name = today_and_finished(team)
+        seen = self.state.setdefault("football_seen", [])
+        hour = datetime.now().hour
+        for m in today:
+            key = f"pre:{m['id']}"
+            if key not in seen and hour >= 8:
+                seen.append(key)
+                tv = f", on {m['tv']}" if m["tv"] else ""
+                self.alert(f"Match day: {m['home']} v {m['away']} at {m['when'].strftime('%H:%M')}{tv} "
+                           f"({m['comp']}).", "Football", speak=False)
+        for m in done:
+            key = f"ft:{m['id']}"
+            if key not in seen:
+                seen.append(key)
+                self.alert(f"Full time: {m['home']} {m['hs']}-{m['as']} {m['away']} ({m['comp']}).", "Football",
+                           speak=False)
+        self.state["football_seen"] = seen[-60:]
+        self._save()
 
     # ---------- meetings ----------
     def _meetings(self):

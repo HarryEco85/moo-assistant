@@ -255,6 +255,29 @@ def _tools():
         {"name": "moo_update", "description": "Check whether there's a newer version of Moo (this assistant) or install it. Moo restarts itself after installing.",
          "input_schema": {"type": "object", "properties": {
              "action": {"type": "string", "enum": ["check", "install"]}}, "required": ["action"]}},
+        {"name": "car_status", "description": "The user's Tesla: battery, range, charging, temperature, locked or not, where it is.",
+         "input_schema": {"type": "object", "properties": {
+             "wake": {"type": "boolean", "description": "Wake the car if it's asleep (only when they need live figures)"}}}},
+        {"name": "car_command", "description": "Do something on the Tesla. Opening things (unlock, boot, frunk, vent windows) is sent for the user's OK first.",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": ["climate_on", "climate_off", "set_temp", "defrost_on", "defrost_off",
+                                                    "lock", "unlock", "charge_start", "charge_stop", "charge_limit",
+                                                    "charge_port_open", "charge_port_close", "honk", "flash",
+                                                    "sentry_on", "sentry_off", "open_boot", "open_frunk", "vent_windows"]},
+             "value": {"type": "number", "description": "Temperature in °C for set_temp, percent for charge_limit"}},
+             "required": ["action"]}},
+        {"name": "car_schedule", "description": "Do a car action later, e.g. warm the car at 7:30 tomorrow (climate_on).",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string"}, "when": {"type": "string", "description": "Local time, YYYY-MM-DDTHH:MM"},
+             "value": {"type": "number"}}, "required": ["action", "when"]}},
+        {"name": "football", "description": "Football: results, fixtures (with TV channel), live score, league table or news. Defaults to the user's team.",
+         "input_schema": {"type": "object", "properties": {
+             "what": {"type": "string", "enum": ["overview", "results", "fixtures", "live", "table", "news"]},
+             "team": {"type": "string", "description": "Another team, if asked"}}}},
+        {"name": "set_home", "description": "Save where the user lives (town or postcode) for weather, drive times and the car.",
+         "input_schema": {"type": "object", "properties": {"place": {"type": "string"}}, "required": ["place"]}},
+        {"name": "set_favourite_team", "description": "Remember which football team the user supports.",
+         "input_schema": {"type": "object", "properties": {"team": {"type": "string"}}, "required": ["team"]}},
         {"name": "ban_word", "description": "Stop using a word or phrase for good (the user dislikes it). Optionally give what to say instead.",
          "input_schema": {"type": "object", "properties": {
              "word": {"type": "string"}, "instead": {"type": "string", "description": "e.g. 'sorted'"}},
@@ -266,13 +289,16 @@ def _tools():
 
 # Tools that change Moo's own state in order; never run side by side
 SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
-              "cancel_reminder", "request_approval", "log_decision", "ban_word", "moo_update", "mark_promise_done", "create_email_draft"}
+              "cancel_reminder", "request_approval", "log_decision", "ban_word", "moo_update", "car_command",
+              "car_schedule", "set_favourite_team", "set_home", "mark_promise_done", "create_email_draft"}
 FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
            (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
            (("vh3_",), "Checking VH3."),
            (("search_files", "read_file"), "Having a look."),
            (("get_weather", "travel_time"), "Let me check."),
            (("search_past",), "Let me think back."),
+           (("car_status", "car_command"), "Talking to the car."),
+           (("football",), "Checking the football."),
            (("look_at_screen",), "Let me have a look."),
            (("use_skill", "make_plan"), "On it."),
            (("web_search",), "Let me look that up.")]
@@ -325,6 +351,8 @@ class Brain:
         self.on_phone = False
         from .connectors import MCPConnector
         self.vh3 = MCPConnector("vh3", settings)
+        from .car import Car
+        self.car = Car(settings)
         self.memory = Memory()
         self.history = History()
         self.usage = Usage()
@@ -401,7 +429,14 @@ class Brain:
 
     def _about(self) -> str:
         about = (self.settings.get("about_you") or "").strip()
-        return f"About {user_name(self.settings)}: {about[:1500]}\n" if about else ""
+        out = f"About {user_name(self.settings)}: {about[:1500]}\n" if about else ""
+        team = (self.settings.get("favourite_team") or "").strip()
+        if team:
+            out += (f"{user_name(self.settings)} supports {team}: the odd bit of banter about them is welcome, "
+                    "and use the football tool for their scores and fixtures.\n")
+        if self.car.enabled:
+            out += f"{user_name(self.settings)} drives a Tesla, connected through the car tools.\n"
+        return out
 
     def _custom(self) -> str:
         notes = (self.settings.get("personality_notes") or "").strip()
@@ -571,6 +606,39 @@ class Brain:
             if name == "search_past":
                 self.status("Looking back through our chats")
                 return self.journal.search(args.get("query", ""), args.get("days", 90))
+            if name == "car_status":
+                self.status("Checking the car")
+                return self.car.status(wake=bool(args.get("wake")))
+            if name == "car_command":
+                action = args.get("action", "")
+                if self.car.needs_ok(action) and not self._approved_run:
+                    if not self.approvals:
+                        return "That needs the user's OK first, and approvals aren't available."
+                    item = self.approvals.add(f"Car: {action.replace('_', ' ')}", "You asked me to, by voice or text",
+                                              f"Use car_command with action {action} now.", source="moo")
+                    if item:
+                        self.on_approval(item)
+                    return ("Opening the car needs a tap to confirm, so it's waiting for their OK (button in chat, "
+                            "the office or the phone). Tell them in a few words.")
+                self.status("Talking to the car")
+                return self.car.command(action, args.get("value"))
+            if name == "car_schedule":
+                return self.car.schedule(args.get("action", ""), args.get("when", ""), args.get("value"))
+            if name == "football":
+                from .football import report
+                team = args.get("team") or self.settings.get("favourite_team") or ""
+                if not team:
+                    return "I don't know their team yet. Ask who they support, then use set_favourite_team."
+                self.status("Checking the football")
+                return report(team, args.get("what") or "overview")
+            if name == "set_home":
+                self.settings["home_location"] = args.get("place", "").strip()
+                save_settings(self.settings)
+                return f"Home saved as {self.settings['home_location']}."
+            if name == "set_favourite_team":
+                self.settings["favourite_team"] = args.get("team", "").strip()
+                save_settings(self.settings)
+                return f"Saved: they support {self.settings['favourite_team']}."
             if name == "moo_update":
                 return self.on_update(args.get("action", "check"))
             if name == "ban_word":

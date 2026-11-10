@@ -142,6 +142,21 @@ Messages pass through your own Supabase project, locked behind a secret pairing 
 
 The app lives at https://harryeco85.github.io/moo-assistant/ (it's useless without your pairing code). If that link shows a 404, turn on GitHub Pages once: repo Settings > Pages > Branch: gh-pages, folder / (root) > Save.
 
+## Your Tesla
+
+Ask "is the car charged?", "where's the car?", "warm the car up", "set it to 21 degrees", "charge to 90%", "lock the car", or "warm the car at 7:30 tomorrow". Unlocking, the boot, the frunk and venting the windows always need a tap on **Approve** first, so a misheard command can't open your car.
+
+Setup (once): Tesla only lets apps in through its Fleet API, and the easiest way in is **Teslemetry** (about $30 a year, commands included).
+1. Go to teslemetry.com, **Sign in with Tesla**, and pick the Access plan.
+2. On your phone, with the Tesla app installed, open **tesla.com/_ak/teslemetry.com** and approve the virtual key. This lets commands through.
+3. In Teslemetry's **Console**, create an **access token** and paste it into Moo: **Settings > Accounts > Tesla access token**, then Save.
+
+If the car's asleep she tells you rather than waking it, because waking uses a little of the monthly allowance. Say "wake it and check" if you need live figures.
+
+## Football
+
+Tell her who you support ("I support Spurs") or set it in **Settings > Personality**. Then ask "how did Spurs get on?", "when's the next game and what channel?", "show me the table" or "any Spurs news?". On match days you get a heads-up with kick-off and channel, and a full-time score afterwards (switch off in **Settings > Proactive**).
+
 ## Meeting and call notes
 
 Say "Hey Moo, take notes" (or "record this meeting"). A red **Taking notes** badge shows in her window. When you're done, say "Hey Moo, stop notes" or press **Stop notes**. She writes up tidy notes (summary, key points, decisions, actions, open questions), saves them with the full transcript in **Documents > Moo Notes**, logs the decisions, sets reminders for your actions, and queues a follow-up email for your OK.

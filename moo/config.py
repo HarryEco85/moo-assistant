@@ -96,6 +96,10 @@ DEFAULTS = {
     "telegram_pair_code": "",
     "phone_voice_replies": True,
     "phone_voice_always": False,
+    "favourite_team": "",
+    "football_alerts": True,  # match-day and full-time messages
+    "tesla_api_base": "https://api.teslemetry.com",
+    "tesla_vin": "",
     "mobile_url": "",  # the phone app's Supabase project
     "mobile_key": "",
     "mobile_enabled": True,

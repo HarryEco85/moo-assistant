@@ -273,6 +273,8 @@ class SettingsWindow:
         self.vars["personality_notes"] = box
         self._entry(t, "banned_words", "Words she must never say", s.get("banned_words", "noted"),
                     note="Comma separated. You can also just tell her: \"stop saying sorted\".")
+        self._entry(t, "favourite_team", "Football team you support", s.get("favourite_team", ""),
+                    note="Results, fixtures, the table and match-day alerts. Or just tell her who you support.")
         self._entry(t, "home_location", "Home postcode or town", s.get("home_location", ""),
                     note="For weather and drive times, e.g. a postcode or town.")
         self._label(t, "Email sign-off", "Added to emails she drafts for you.")
@@ -327,6 +329,7 @@ class SettingsWindow:
         self._check(t, "vh3_alerts", "Morning VH3 check: tell me about new critical BigChange issues",
                     s.get("vh3_alerts", True))
         self._check(t, "learn_memory", "Offer to remember things she notices about me", s.get("learn_memory", True))
+        self._check(t, "football_alerts", "Match-day and full-time football alerts", s.get("football_alerts", True))
         self._check(t, "suggest_actions", "Offer to draft replies and quote chases (only with my OK)",
                     s.get("suggest_actions", True))
         self._check(t, "log_decisions", "Keep a log of decisions I make, for later", s.get("log_decisions", True))
@@ -415,6 +418,12 @@ class SettingsWindow:
         self._entry(t, "elevenlabs_key", "ElevenLabs API key (optional)", "", show="•",
                     note=("Saved. Paste a new one to replace it, or type 'remove'." if get_secret("elevenlabs_key")
                           else "elevenlabs.io > Profile > API keys. Unlocks the most lifelike voices."))
+        tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
+        self._entry(t, "tesla_token", "Tesla access token (Teslemetry)", "", show="•",
+                    note=("Saved. Paste a new one to replace it, or type 'remove'." if get_secret("tesla_token")
+                          else "teslemetry.com > sign in with Tesla > Console > Access tokens. See the README."))
+        self._entry(t, "tesla_api_base", "Tesla API address", s.get("tesla_api_base", "https://api.teslemetry.com"),
+                    note="Leave as it is for Teslemetry.")
         self._entry(t, "azure_key", "Azure Speech key (optional)", "", show="•",
                     note=("Saved. Paste a new one to replace it, or type 'remove'." if get_azure_key()
                           else "Free tier unlocks more British voices. See the README for setup."))
@@ -656,7 +665,7 @@ class SettingsWindow:
         threading.Thread(target=run, daemon=True).start()
 
     def _store_secrets(self):
-        for key in ("gmail_app_password", "gcal_ics_url", "telegram_token", "elevenlabs_key"):
+        for key in ("gmail_app_password", "gcal_ics_url", "telegram_token", "elevenlabs_key", "tesla_token"):
             v = self.vars[key].get().strip()
             if v:
                 set_secret(key, "" if v.lower() == "remove" else v)
@@ -694,7 +703,7 @@ class SettingsWindow:
 
         for k, w in self.vars.items():
             if k in ("api_key", "azure_key", "autostart", "gmail_app_password", "gcal_ics_url", "telegram_token",
-                     "elevenlabs_key"):
+                     "elevenlabs_key", "tesla_token"):
                 continue
             if isinstance(w, tuple):  # combo
                 var, choices = w
