@@ -255,12 +255,20 @@
 
   // ---------- voice out ----------
   const player = new Audio();
+  let playlist = [];
   player.onplay = () => setState("speaking");
-  player.onended = player.onpause = () => { if (state === "speaking") setState("idle"); };
-  function play(b64) {
+  player.onended = () => { if (playlist.length) next(); else if (state === "speaking") setState("idle"); };
+  player.onpause = () => { if (player.ended) return; if (state === "speaking" && !playlist.length) setState("idle"); };
+  function next() {
+    const b64 = playlist.shift();
     try { player.src = "data:audio/mp4;base64," + b64; player.play().catch(() => setState("idle")); } catch { }
   }
-  $("orbBtn").onclick = () => { if (!player.paused) { player.pause(); setState("idle"); } };
+  function play(b64) { playlist = []; playlist.push(b64); next(); }       // replay / single clip
+  function queueAudio(b64) {                                               // streamed pieces, in order
+    playlist.push(b64);
+    if (player.paused || player.ended || !player.src || state !== "speaking") next();
+  }
+  $("orbBtn").onclick = () => { if (!player.paused) { playlist = []; player.pause(); setState("idle"); } };
 
   // ---------- state ----------
   let state = "idle";
@@ -281,10 +289,40 @@
       if (mine && mine.dataset.voice === "1") { mine.textContent = m.body; mine.dataset.voice = ""; } else addYou(m.body);
       return;
     }
+    if (m.kind === "speech") {          // she's started talking before the reply is finished
+      const rid = m.meta && m.meta.rid;
+      let el = rid && chat.querySelector(`.msg.moo[data-rid="${rid}"]`);
+      if (!el) {
+        typing(false);
+        el = addMoo("", m.created);
+        el.dataset.rid = rid || "";
+        el.clips = [];
+        el.appendChild(document.createElement("span"));
+      }
+      const span = el.lastChild;
+      span.textContent = (span.textContent + " " + m.body).trim();
+      el.clips.push(m.audio);
+      chat.scrollTop = chat.scrollHeight;
+      if (prefs.voice) queueAudio(m.audio);
+      return;
+    }
     if (m.kind === "text") {
       typing(false); waiting = Math.max(0, waiting - 1);
-      addMoo(m.body, m.created, m.audio);
-      if (m.audio && prefs.voice) play(m.audio); else setState("idle");
+      const rid = m.meta && m.meta.rid;
+      const el = rid && chat.querySelector(`.msg.moo[data-rid="${rid}"]`);
+      if (el) {                          // swap the spoken pieces for the finished text, keep a replay
+        el.lastChild.textContent = m.body;
+        const clips = el.clips || [];
+        const who = el.querySelector(".who");
+        if (clips.length && who && !who.querySelector(".replay")) {
+          const b = document.createElement("button"); b.className = "replay"; b.textContent = "▶ replay";
+          b.onclick = () => { playlist = clips.slice(1); play(clips[0]); playlist = clips.slice(1); };
+          who.appendChild(b);
+        }
+      } else {
+        addMoo(m.body, m.created, m.audio);
+        if (m.audio && prefs.voice) play(m.audio); else if (state !== "speaking") setState("idle");
+      }
       if (waiting) typing(true);
     } else if (m.kind === "alert") {
       const el = add("alert", esc(m.body));
@@ -309,7 +347,7 @@
   function schedule() {
     clearTimeout(timer);
     if (document.hidden) return;
-    timer = setTimeout(async () => { await poll(); schedule(); }, waiting ? 900 : 3000);
+    timer = setTimeout(async () => { await poll(); schedule(); }, waiting || state === "speaking" ? 500 : 3000);
   }
 
   // ---------- at a glance ----------
