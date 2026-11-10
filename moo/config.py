@@ -97,6 +97,7 @@ DEFAULTS = {
     "phone_voice_replies": True,
     "phone_voice_always": False,
     "favourite_team": "",
+    "cloud_hearing": True,  # use Groq's hosted Whisper when a key is set
     "football_alerts": True,  # match-day and full-time messages
     "tesla_api_base": "https://api.teslemetry.com",
     "tesla_vin": "",

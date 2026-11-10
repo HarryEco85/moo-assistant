@@ -308,7 +308,11 @@ class Mobile:
         if not ears or ears.whisper is None:
             return ""
         from .phone import decode_voice
+        from .voice import cloud_transcribe
         pcm = decode_voice(data)
+        text = cloud_transcribe(pcm, self.s)
+        if text is not None:
+            return text
         with ears._wlock:
             segs, _ = ears.whisper.transcribe(pcm, language="en", beam_size=3, vad_filter=True,
                                               initial_prompt=(self.s.get("vocabulary") or "").strip() or None)

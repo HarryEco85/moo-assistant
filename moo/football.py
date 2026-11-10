@@ -21,7 +21,7 @@ def _get(url, ttl=600):
     hit = _cache.get(url)
     if hit and time.time() - hit[0] < ttl:
         return hit[1]
-    r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (Moo assistant)"})
+    r = requests.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0 (Moo assistant)"})
     r.raise_for_status()
     data = r.json()
     _cache[url] = (time.time(), data)
@@ -56,12 +56,20 @@ def _score(c):
 
 
 def _events(team_id, league):
+    from concurrent.futures import ThreadPoolExecutor
+    urls = [f"{BASE}/{lg}/teams/{team_id}/schedule{extra}" for lg in [league] + CUPS for extra in ("", "?fixture=true")]
+
+    def fetch(u):
+        try:
+            return _get(u)
+        except Exception:
+            return None
+    with ThreadPoolExecutor(max_workers=len(urls)) as pool:
+        pages = list(pool.map(fetch, urls))  # all at once: about a second instead of ten
     seen, out = set(), []
-    for lg in [league] + CUPS:
-        for extra in ("", "?fixture=true"):
-            try:
-                data = _get(f"{BASE}/{lg}/teams/{team_id}/schedule{extra}")
-            except Exception:
+    for data, lg in zip(pages, [lg for lg in [league] + CUPS for _ in (0, 1)]):
+        if True:
+            if not data:
                 continue
             comp_name = (data.get("leagues") or [{}])[0].get("name") or data.get("season", {}).get("name") or lg
             for e in data.get("events", []):

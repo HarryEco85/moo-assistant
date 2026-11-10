@@ -325,6 +325,10 @@ class Phone:
         f = self._call("getFile", file_id=media["file_id"])
         data = requests.get(f"{API}/file/bot{self.token()}/{f['file_path']}", timeout=60).content
         pcm = decode_voice(data)
+        from .voice import cloud_transcribe
+        text = cloud_transcribe(pcm, self.s)
+        if text is not None:
+            return text
         t0 = time.time()
         segments, _ = ears.whisper.transcribe(pcm, language="en", beam_size=1, vad_filter=True,
                                               initial_prompt=(self.s.get("vocabulary") or "").strip() or None)

@@ -302,3 +302,26 @@ class OutlookDesktop:
         with _Session() as s:
             inbox = s.ns.GetDefaultFolder(INBOX)
             return f"Connected to Outlook on this PC ({inbox.Items.Count} emails in the inbox)."
+
+
+def _retry_when_busy(fn):
+    """Outlook says 'call was rejected' while it's busy (starting up, syncing): wait a moment and try again."""
+    import functools
+    import time as _t
+
+    @functools.wraps(fn)
+    def wrapper(*a, **k):
+        for attempt in range(5):
+            try:
+                return fn(*a, **k)
+            except Exception as e:
+                code = getattr(e, "hresult", None) or (e.args[0] if getattr(e, "args", None) else None)
+                if code in (-2147418111, -2147417846) and attempt < 4:  # RPC_E_CALL_REJECTED / RETRYLATER
+                    _t.sleep(0.6 * (attempt + 1))
+                    continue
+                raise
+    return wrapper
+
+
+for _name in ("list_emails", "search_emails", "read_email", "calendar_events", "create_draft", "test"):
+    setattr(OutlookDesktop, _name, _retry_when_busy(getattr(OutlookDesktop, _name)))

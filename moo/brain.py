@@ -83,6 +83,11 @@ Skills (saved routines {user} has taught you):
 - When a request matches a skill, call use_skill first and follow its steps exactly, in order.
 - When {user} says "save that as a skill", "whenever I ask for X, do Y" or "teach you to...", write clear numbered steps and use save_skill (confirm the name in one short line).
 
+Speed (they're waiting while you work):
+- Use the fewest tools. Don't call search_past, list_reminders or check_connections unless the question is actually about past chats, reminders or connections.
+- When you need several lookups, ask for them all in ONE turn (several tool calls at once), not one after another.
+- If you can answer from what you already know or what's in this chat, just answer.
+
 Big jobs (plan, act, check):
 - For anything needing several steps or tools across systems (an inbox sweep, prep for tomorrow, a weekly summary, most skills), call make_plan first with 2 to 7 short steps. Work through them, calling update_plan as each step starts and finishes (status doing, done, skipped or failed, with a short note of what you found).
 - Before answering, CHECK your own work: re-read what you produced, confirm drafts and reminders were actually saved (the tool said so), make sure numbers add up and nothing in the request was missed. Then call finish_plan with what you checked and any issues. Only then give {user} a short summary of the outcome.
@@ -627,6 +632,9 @@ class Brain:
             if name == "football":
                 from .football import report
                 team = args.get("team") or self.settings.get("favourite_team") or ""
+                if args.get("team") and not self.settings.get("favourite_team"):
+                    self.settings["favourite_team"] = args["team"]  # first team they ask about is theirs
+                    save_settings(self.settings)
                 if not team:
                     return "I don't know their team yet. Ask who they support, then use set_favourite_team."
                 self.status("Checking the football")

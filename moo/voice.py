@@ -497,6 +497,39 @@ def match_wake(text, name="Moo"):
     return rest
 
 
+def cloud_transcribe(pcm, settings) -> str:
+    """Optional: Groq's hosted Whisper (large-v3-turbo). Much faster and more accurate than a laptop
+    processor, free tier is plenty for one person. Returns None if not set up or it fails."""
+    from .config import get_secret
+    key = get_secret("groq_key")
+    if not key or not settings.get("cloud_hearing", True) or pcm is None or len(pcm) < 1600:
+        return None
+    try:
+        import io
+        import wave
+        import requests
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes((np.clip(pcm, -1, 1) * 32767).astype(np.int16).tobytes())
+        data = {"model": "whisper-large-v3-turbo", "language": "en", "temperature": "0", "response_format": "json"}
+        vocab = (settings.get("vocabulary") or "").strip()
+        if vocab:
+            data["prompt"] = vocab[:600]  # the prompt is capped at 224 tokens
+        r = requests.post("https://api.groq.com/openai/v1/audio/transcriptions", timeout=12,
+                          headers={"Authorization": f"Bearer {key}"},
+                          files={"file": ("speech.wav", buf.getvalue(), "audio/wav")}, data=data)
+        if r.status_code != 200:
+            log.warning("Cloud hearing failed (%s): %s", r.status_code, r.text[:160])
+            return None
+        return (r.json().get("text") or "").strip()
+    except Exception as e:
+        log.warning("Cloud hearing failed: %s", e)
+        return None
+
+
 class Ears:
     """One microphone stream. Normally listens for the wake word; when asked,
     records one utterance and transcribes it."""
@@ -705,11 +738,11 @@ class Ears:
         return None
 
     def _spot_frame(self, frame):
-        seg = self._segment(self._spot, frame, end_quiet=6, max_frames=95)  # pause ~0.5 s, phrase up to ~7.5 s
+        seg = self._segment(self._spot, frame, end_quiet=6, max_frames=66)  # pause ~0.5 s, phrase up to ~5 s
         if seg is None:
             return
         dur = len(seg) * FRAME / RATE
-        if 0.35 <= dur <= 7.4:
+        if 0.35 <= dur <= 5.0:
             try:
                 self._spot_q.put_nowait(np.concatenate(seg))
             except queue.Full:
@@ -844,6 +877,16 @@ class Ears:
                 initial_prompt=(self.settings.get("vocabulary") or "").strip() or None)
             return " ".join(seg.text.strip() for seg in segments).strip()
 
+        t0c = time.time()
+        text = cloud_transcribe(pcm, self.settings)
+        if text is not None:
+            self.last_cloud = True
+            self.last_transcribe_s = time.time() - t0c
+            log.info("Heard in the cloud in %.1fs", self.last_transcribe_s)
+            if text.lower().strip(" .!") in ("thank you", "thanks for watching", "you", "bye"):
+                return ""  # what speech models "hear" in near-silence
+            return text
+        self.last_cloud = False
         try:
             text = transcribe()
         except Exception as e:

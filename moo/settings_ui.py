@@ -419,6 +419,11 @@ class SettingsWindow:
                     note=("Saved. Paste a new one to replace it, or type 'remove'." if get_secret("elevenlabs_key")
                           else "elevenlabs.io > Profile > API keys. Unlocks the most lifelike voices."))
         tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
+        self._entry(t, "groq_key", "Cloud hearing: Groq API key (free)", "", show="•",
+                    note=("Saved: she hears you in the cloud (faster, fewer mistakes). Type 'remove' to stop."
+                          if get_secret("groq_key") else
+                          "console.groq.com > API Keys > Create. Much faster, more accurate hearing on any PC."))
+        tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
         self._entry(t, "tesla_token", "Tesla access token (Teslemetry)", "", show="•",
                     note=("Saved. Paste a new one to replace it, or type 'remove'." if get_secret("tesla_token")
                           else "teslemetry.com > sign in with Tesla > Console > Access tokens. See the README."))
@@ -665,7 +670,7 @@ class SettingsWindow:
         threading.Thread(target=run, daemon=True).start()
 
     def _store_secrets(self):
-        for key in ("gmail_app_password", "gcal_ics_url", "telegram_token", "elevenlabs_key", "tesla_token"):
+        for key in ("gmail_app_password", "gcal_ics_url", "telegram_token", "elevenlabs_key", "tesla_token", "groq_key"):
             v = self.vars[key].get().strip()
             if v:
                 set_secret(key, "" if v.lower() == "remove" else v)
@@ -703,7 +708,7 @@ class SettingsWindow:
 
         for k, w in self.vars.items():
             if k in ("api_key", "azure_key", "autostart", "gmail_app_password", "gcal_ics_url", "telegram_token",
-                     "elevenlabs_key", "tesla_token"):
+                     "elevenlabs_key", "tesla_token", "groq_key"):
                 continue
             if isinstance(w, tuple):  # combo
                 var, choices = w
