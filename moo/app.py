@@ -157,6 +157,7 @@ class MooApp:
         self.brain.on_approval = self.show_approval
         self.brain.on_plan = self._plan_changed
         self.brain.on_update = self.update_tool
+        self.brain.on_options = self.show_options
 
     def _load_voice(self):
         from .voice import Ears, Mouth
@@ -583,12 +584,24 @@ class MooApp:
                 img = cards.calendar_card(data["events"], data["start"], data["days"], palette(self.settings), width)
             elif kind == "weather":
                 img = cards.weather_card(data, palette(self.settings), width)
+            elif kind == "image":
+                full = data["image"]
+                img = full.copy()
+                img.thumbnail((width, 2000))
             else:
                 return
         except Exception:
             log.exception("Card failed")
             return
         self.ui.add_card(img)
+        if kind == "image" and getattr(self, "_phone_cards", None) is not None:
+            import io
+            phone = data["image"].copy()
+            phone.thumbnail((1400, 1400))
+            buf = io.BytesIO()
+            phone.save(buf, "PNG")
+            self._phone_cards.append(buf.getvalue())
+            return
         if getattr(self, "_phone_cards", None) is not None:
             self._phone_cards.append(cards.to_png(cards.calendar_card(
                 data["events"], data["start"], data["days"], palette(self.settings), 480))
@@ -628,6 +641,7 @@ class MooApp:
         """A message from Telegram or the phone app: answer without speaking on the PC."""
         drafts = []
         self._phone_cards = []
+        self._app_options = []
         if not self.busy.acquire(timeout=90):
             return "I'm tied up with something on the PC. Try again in a moment.", drafts
         old_show = self.brain.show_draft
@@ -663,10 +677,13 @@ class MooApp:
             threading.Thread(target=self._learn, args=(text, reply, True), daemon=True, name="learn").start()
             for png in self._phone_cards:
                 drafts.append(("__image__", png))
+            if source == "app" and self._app_options:
+                drafts.append(("__options__", list(self._app_options)))
             return reply, drafts
         finally:
             self.brain.show_draft = old_show
             self._phone_cards = None
+            self._app_options = None
             self.ui.set_state("idle")
             self.busy.release()
             self._footer()
@@ -735,6 +752,13 @@ class MooApp:
             log.exception("Notes follow-up failed")
             reply = f"The notes are saved in Documents, Moo Notes, but I couldn't set up the follow-ups: {str(e)[:120]}"
         self.say(reply)
+
+    def show_options(self, options):
+        """Tappable next steps: buttons in the chat, and chips in the phone app."""
+        if getattr(self, "_app_options", None) is not None:  # a phone-app question: send them there
+            self._app_options[:] = options
+            return
+        self.ui.add_choice("", [(o, lambda o=o: self.text_request(o)) for o in options])
 
     # ---------- approvals ----------
     def show_approval(self, item, notify=True):

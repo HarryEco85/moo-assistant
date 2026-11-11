@@ -301,6 +301,8 @@ class Mobile:
         for label, content in extras:
             if label == "__image__":
                 self.post("image", "", base64.b64encode(content).decode(), "image/png")
+            elif label == "__options__":
+                self.post("options", "", meta={"options": content})
             else:
                 self.post("draft", content, meta={"label": label})
         self.push_state()

@@ -26,3 +26,4 @@ av>=12
 kokoro-onnx>=0.4
 mcp>=1.12,<2
 qrcode>=7.4
+ezdxf>=1.3

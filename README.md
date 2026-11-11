@@ -142,6 +142,21 @@ Messages pass through your own Supabase project, locked behind a secret pairing 
 
 The app lives at https://harryeco85.github.io/moo-assistant/ (it's useless without your pairing code). If that link shows a 404, turn on GitHub Pages once: repo Settings > Pages > Branch: gh-pages, folder / (root) > Save.
 
+## Drawings: sketch to CAD
+
+Send her a sketch or photo of a drainage layout (from the phone app's camera button, or say "look at this" with it on screen) and say "draw this up properly". She reads it into chambers, pipes, levels and outlines and produces:
+- a **DXF** you can open in AutoCAD, DraftSight, BricsCAD or LibreCAD (proper layers: foul, surface, chambers, building, text)
+- an A3 **PDF** with a Moolands title block, legend, north arrow and scale bar
+- a preview in the chat (and on your phone)
+
+Everything is saved in **Documents > Moo Drawings**, one file set per revision. Then just talk to it: "move MH2 three metres east", "make P3 150mm", "add a gully by the back door", "put the levels on IC1", "open it in CAD". She flags design points as she goes: falls flatter than Approved Document H allows, backfalls, shallow cover, inspection chambers too deep, runs too long between access points. They're advisory, for you or a designer to confirm.
+
+Pictures are read with the sharper Sonnet brain automatically (Settings: vision_model), even if you use Haiku day to day.
+
+## Suggestions
+
+After you give her anything (a photo, document, drawing, long email or your screen) she offers two to four next steps as buttons, on the PC and in the phone app. Tap one and she does it.
+
 ## Your Tesla
 
 Ask "is the car charged?", "where's the car?", "warm the car up", "set it to 21 degrees", "charge to 90%", "lock the car", or "warm the car at 7:30 tomorrow". Unlocking, the boot, the frunk and venting the windows always need a tap on **Approve** first, so a misheard command can't open your car.

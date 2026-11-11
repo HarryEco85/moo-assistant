@@ -92,6 +92,11 @@ Speed (they're waiting while you work):
 - When you need several lookups, ask for them all in ONE turn (several tool calls at once), not one after another.
 - If you can answer from what you already know or what's in this chat, just answer.
 
+Drawings and documents (be a proper partner, like Jarvis):
+- If they send a sketch, photo or description of a drainage layout and want it drawn up (or it obviously is one), read it carefully and use drawing_create. Estimate positions in metres from the sketch; use any dimensions written on it. Label chambers as they are on the sketch (MH1, IC2...), otherwise number them in flow order.
+- Then talk it through: say what you drew, flag the one or two design checks that matter, and ask about anything you had to guess (levels, sizes). Edits like "move MH2 3 m east", "make P3 150mm", "add a gully by the back door" use drawing_edit.
+- Whenever you've been given something (a photo, a document, a screen, a drawing, a long email), finish with offer_options: 2-4 smart next steps they'd actually want, e.g. "Draw it up in CAD", "Check the falls", "Price this job", "Draft the reply".
+
 Big jobs (plan, act, check):
 - For anything needing several steps or tools across systems (an inbox sweep, prep for tomorrow, a weekly summary, most skills), call make_plan first with 2 to 7 short steps. Work through them, calling update_plan as each step starts and finishes (status doing, done, skipped or failed, with a short note of what you found).
 - Before answering, CHECK your own work: re-read what you produced, confirm drafts and reminders were actually saved (the tool said so), make sure numbers add up and nothing in the request was missed. Then call finish_plan with what you checked and any issues. Only then give {user} a short summary of the outcome.
@@ -287,6 +292,40 @@ def _tools():
          "input_schema": {"type": "object", "properties": {"place": {"type": "string"}}, "required": ["place"]}},
         {"name": "set_favourite_team", "description": "Remember which football team the user supports.",
          "input_schema": {"type": "object", "properties": {"team": {"type": "string"}}, "required": ["team"]}},
+        {"name": "drawing_create", "description": "Turn a sketch, photo or description of a drainage layout into a proper CAD drawing (DXF + PDF). Read the sketch carefully into the model: every chamber/manhole/gully with an id and plan position in metres (x east, y north, put the first chamber at 0,0 and estimate positions from the sketch and any dimensions), cover/invert levels if shown, every pipe between chambers with diameter, material, gradient or length if shown, system foul/surface, building outlines as point lists, and notes.",
+         "input_schema": {"type": "object", "properties": {
+             "title": {"type": "string"}, "site": {"type": "string"}, "client": {"type": "string"},
+             "nodes": {"type": "array", "items": {"type": "object", "properties": {
+                 "id": {"type": "string"}, "type": {"type": "string", "enum": ["manhole", "inspection_chamber", "rodding_eye", "gully", "rwp", "svp", "soakaway", "interceptor", "connection", "outfall", "pump", "other"]},
+                 "x": {"type": "number"}, "y": {"type": "number"}, "cover_level": {"type": "number"},
+                 "invert_level": {"type": "number"}, "size": {"type": "string"}, "notes": {"type": "string"}},
+                 "required": ["id", "x", "y"]}},
+             "pipes": {"type": "array", "items": {"type": "object", "properties": {
+                 "id": {"type": "string"}, "from": {"type": "string"}, "to": {"type": "string"},
+                 "diameter_mm": {"type": "number"}, "material": {"type": "string"}, "gradient": {"type": "string", "description": "e.g. 1:60"},
+                 "length_m": {"type": "number"}, "system": {"type": "string", "enum": ["foul", "surface", "combined"]}},
+                 "required": ["from", "to"]}},
+             "outlines": {"type": "array", "items": {"type": "object", "properties": {
+                 "label": {"type": "string"}, "points": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+                 "closed": {"type": "boolean"}}}},
+             "notes": {"type": "array", "items": {"type": "string"}}},
+             "required": ["title", "nodes"]}},
+        {"name": "drawing_edit", "description": "Change the current drawing (or a named one) and redraw it as a new revision. Upsert nodes/pipes/outlines by id (only the fields that change), move nodes by dx/dy metres, remove ids, add notes.",
+         "input_schema": {"type": "object", "properties": {
+             "name": {"type": "string", "description": "Only if not the drawing you're already working on"},
+             "title": {"type": "string"}, "site": {"type": "string"}, "client": {"type": "string"}, "drawing_no": {"type": "string"},
+             "nodes": {"type": "array", "items": {"type": "object"}}, "pipes": {"type": "array", "items": {"type": "object"}},
+             "outlines": {"type": "array", "items": {"type": "object"}},
+             "move": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"}, "dx": {"type": "number"}, "dy": {"type": "number"}}}},
+             "remove": {"type": "array", "items": {"type": "string"}}, "add_notes": {"type": "array", "items": {"type": "string"}}}}},
+        {"name": "drawing_show", "description": "Get a drawing's full details (chambers, pipes, levels) to discuss it, and show it. Optional earlier revision number.",
+         "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "integer"}}}},
+        {"name": "drawing_list", "description": "List saved drawings.", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "drawing_open", "description": "Open the current drawing's DXF (in their CAD program) or PDF on the PC.",
+         "input_schema": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["dxf", "pdf"]}}}},
+        {"name": "offer_options", "description": "Show 2-4 tappable next steps (short labels, written as what the user would say).",
+         "input_schema": {"type": "object", "properties": {"options": {"type": "array", "items": {"type": "string"}}},
+                          "required": ["options"]}},
         {"name": "ban_word", "description": "Stop using a word or phrase for good (the user dislikes it). Optionally give what to say instead.",
          "input_schema": {"type": "object", "properties": {
              "word": {"type": "string"}, "instead": {"type": "string", "description": "e.g. 'sorted'"}},
@@ -299,7 +338,7 @@ def _tools():
 # Tools that change Moo's own state in order; never run side by side
 SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
               "cancel_reminder", "request_approval", "log_decision", "ban_word", "moo_update", "car_command",
-              "car_schedule", "set_favourite_team", "set_home", "mark_promise_done", "create_email_draft"}
+              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "mark_promise_done", "create_email_draft"}
 FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
            (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
            (("vh3_",), "Checking VH3."),
@@ -308,6 +347,8 @@ FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your email
            (("search_past",), "Let me think back."),
            (("car_status", "car_command"), "Talking to the car."),
            (("football",), "Checking the football."),
+           (("drawing_create",), "Right, let me draw that up."),
+           (("drawing_edit",), "Changing that now."),
            (("look_at_screen",), "Let me have a look."),
            (("use_skill", "make_plan"), "On it."),
            (("web_search",), "Let me look that up.")]
@@ -352,6 +393,8 @@ class Brain:
         self.on_approval = lambda item: None  # app shows new requests on the PC and phone
         self.on_plan = lambda plan: None  # app shows plan progress
         self.on_update = lambda action: "Updates aren't available here."
+        self.on_options = lambda options: None  # app shows tappable suggestions
+        self.current_drawing = None
         self.plan = None
         self.skills = Skills()
         self.journal = Journal()
@@ -616,6 +659,13 @@ class Brain:
             if name == "search_past":
                 self.status("Looking back through our chats")
                 return self.journal.search(args.get("query", ""), args.get("days", 90))
+            if name.startswith("drawing_"):
+                return self._drawing_tool(name, args)
+            if name == "offer_options":
+                opts = [str(o).strip()[:60] for o in (args.get("options") or []) if str(o).strip()][:4]
+                if opts:
+                    self.on_options(opts)
+                return "Shown as buttons. Don't list them again in your reply."
             if name == "car_status":
                 self.status("Checking the car")
                 return self.car.status(wake=bool(args.get("wake")))
@@ -721,6 +771,48 @@ class Brain:
             sentence = pattern.sub(lambda m: new.capitalize() if m.group(0)[0].isupper() else new, sentence)
         return sentence
 
+    def _drawing_tool(self, name, args) -> str:
+        from . import drawings as D
+        if name == "drawing_list":
+            items = D.listing()
+            return "\n".join(f"- {n}: {t} (rev {v}, {when:%d %b %H:%M})" for n, t, v, when in items) or "No drawings yet."
+        dname = args.get("name") or self.current_drawing
+        if name == "drawing_create":
+            model = D.normalise({k: v for k, v in args.items()})
+            if not model["nodes"]:
+                return "I need at least one chamber to draw."
+            dname = D.save(model)
+        elif not dname:
+            return "There's no drawing open. Use drawing_list, or create one."
+        else:
+            model = D.load(dname, args.get("version") if name == "drawing_show" else None)
+            if model is None:
+                return f"No drawing called {dname}."
+            if name == "drawing_open":
+                import os
+                files = sorted(D.output_dir().glob(f"{dname} rev*.{args.get('kind', 'dxf')}"),
+                               key=lambda p: p.stat().st_mtime)
+                if not files:
+                    return "Not exported yet."
+                if self.on_phone:
+                    return f"It's saved on the PC at {files[-1]}."
+                os.startfile(str(files[-1]))
+                return f"Opened {files[-1].name}."
+            if name == "drawing_edit":
+                model = D.apply_changes(model, args)
+                D.save(model, dname)
+        self.current_drawing = dname
+        self.status("Drawing it up")
+        out = D.export(model, dname)
+        self.show_card("image", {"image": out["image"]})
+        issues = D.check(model)
+        detail = json.dumps({k: model[k] for k in ("title", "site", "nodes", "pipes", "notes")})[:6000]
+        return (f"Drawing '{model['title']}' revision {model['version']} done. Files on the PC (Documents > Moo "
+                f"Drawings): {out['dxf'].name} (CAD), {out['pdf'].name}. The preview is on screen.\n"
+                f"Design checks: " + ("; ".join(issues) if issues else "nothing flagged.") +
+                f"\nCurrent model: {detail}\nTell them briefly what you drew, the most important check or two, "
+                "and offer next steps with offer_options.")
+
     def _decisions(self) -> str:
         try:
             rows = self.journal.recent_decisions(8)
@@ -768,6 +860,8 @@ class Brain:
                 on_sentence(msg)
             return msg
         model = self.settings.get("model", "claude-haiku-5-5")
+        if images and self.settings.get("smart_vision", True):
+            model = self.settings.get("vision_model") or "claude-sonnet-5-5"  # reading sketches needs the sharper eye
         # The persona is identical on every request so Anthropic can cache it (faster, cheaper).
         # The clock goes with the question instead.
         system = [{
