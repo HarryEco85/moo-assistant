@@ -322,6 +322,7 @@ def render(m, width=3508, height=2480):
         return ox + (x - x0) * k, oy - (y - y0) * k
 
     f_small, f_mid, f_big = _font(int(30 * S)), _font(int(38 * S)), _font(int(60 * S), True)
+    taken = []  # boxes already used by text, so node labels steer round them
     for o in m["outlines"]:
         pts = [P(*map(float, p)) for p in o.get("points") or []]
         if len(pts) >= 2:
@@ -332,7 +333,10 @@ def render(m, width=3508, height=2480):
                 if big:  # site boundary and the like: label in the corner, out of the way
                     d.text((min(xs) + 20 * S, min(ys) + 14 * S), o["label"].upper(), fill=grey, font=f_small)
                 else:
-                    d.text((sum(xs) / len(xs), sum(ys) / len(ys)), o["label"], fill=grey, font=f_mid, anchor="mm")
+                    cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+                    d.text((cx, cy), o["label"], fill=grey, font=f_mid, anchor="mm")
+                    tw = d.textlength(o["label"], font=f_mid)
+                    taken.append((cx - tw / 2, cy - 22 * S, cx + tw / 2, cy + 22 * S))
     for p in m["pipes"]:
         a, b = _node(m, p["from"]), _node(m, p["to"])
         col = SYSTEM_COLOURS[p["system"]]
@@ -344,9 +348,15 @@ def render(m, width=3508, height=2480):
         d.polygon([(mx + L * math.cos(ang), my + L * math.sin(ang)),
                    (mx + L * math.cos(ang + 2.5), my + L * math.sin(ang + 2.5)),
                    (mx + L * math.cos(ang - 2.5), my + L * math.sin(ang - 2.5))], fill=col)
+        seg = math.hypot(bx - ax, by - ay)
         label = _pipe_label(m, p)
-        if d.textlength(label, font=f_small) > math.hypot(bx - ax, by - ay) * 0.9:
+        bare = not (p.get("diameter_mm") or p.get("material") or pipe_figures(m, p)[1])
+        if bare and "connection" in (a["type"], b["type"]):
+            continue  # plain branch: the BR label on the node says it all, keep the plan readable
+        if d.textlength(label, font=f_small) > seg * 0.9:
             label = p["id"]  # short run: just its name, details are in the DXF and the checks
+        if d.textlength(label, font=f_small) > seg * 0.6:
+            continue
         tw = d.textlength(label, font=f_small)
         txt = Image.new("RGBA", (int(tw + 20), int(46 * S)), (255, 255, 255, 0))
         ImageDraw.Draw(txt).text((10, 4), label, fill=col, font=f_small)
@@ -356,6 +366,11 @@ def render(m, width=3508, height=2480):
         rt = txt.rotate(deg, expand=True, resample=Image.BICUBIC)
         off = 34 * S
         img.paste(rt, (int(mx - rt.width / 2 + off * math.sin(ang)), int(my - rt.height / 2 - off * math.cos(ang))), rt)
+    placed = taken
+    for n in m["nodes"]:  # every symbol counts as taken space before any label goes down
+        x, y = P(n["x"], n["y"])
+        rr = 28 * S
+        placed.append((x - rr, y - rr, x + rr, y + rr))
     for n in m["nodes"]:
         x, y = P(n["x"], n["y"])
         r = (26 if n["type"] in ("manhole", "soakaway", "interceptor", "pump") else 18) * S
@@ -363,9 +378,34 @@ def render(m, width=3508, height=2480):
             d.rectangle([x - r, y - r, x + r, y + r], fill="white", outline=ink, width=max(2, int(5 * S)))
         else:
             d.ellipse([x - r, y - r, x + r, y + r], fill="white", outline=ink, width=max(2, int(5 * S)))
-        for i, line in enumerate(_node_label(n)):
-            d.text((x + r + 10 * S, y - r + i * 36 * S), line, fill=ink if i == 0 else grey,
-                   font=_font(int(32 * S), i == 0))
+        lines = _node_label(n)
+        fonts = [_font(int(32 * S), i == 0) for i in range(len(lines))]
+        w = max(d.textlength(t, font=f) for t, f in zip(lines, fonts))
+        h = len(lines) * 36 * S
+        # which way do the pipes leave this node? put the label where they don't go
+        dirs = []
+        for p in m["pipes"]:
+            other = p["to"] if p["from"] == n["id"] else p["from"] if p["to"] == n["id"] else None
+            if other:
+                o = _node(m, other)
+                ox_, oy_ = P(o["x"], o["y"])
+                dirs.append(math.atan2(oy_ - y, ox_ - x))
+        g = 10 * S
+        spots = [(x + r + g, y - r), (x - r - g - w, y - r), (x - w / 2, y - r - g - h), (x - w / 2, y + r + g),
+                 (x + r + g, y - h - r / 2), (x + r + g, y + r / 2), (x - r - g - w, y - h - r / 2),
+                 (x - r - g - w, y + r / 2)]
+
+        def score(sp):
+            bx0, by0, bx1, by1 = sp[0], sp[1], sp[0] + w, sp[1] + h
+            hit = sum(1 for q in placed if not (bx1 < q[0] or bx0 > q[2] or by1 < q[1] or by0 > q[3])) * 10
+            cx, cy = (bx0 + bx1) / 2 - x, (by0 + by1) / 2 - y
+            ang = math.atan2(cy, cx)
+            clash = sum(max(0, 1 - abs(math.atan2(math.sin(ang - t), math.cos(ang - t))) / 0.9) for t in dirs)
+            return hit + clash * 3
+        sx, sy = min(spots, key=score)
+        placed.append((sx, sy, sx + w, sy + h))
+        for i, (line, f) in enumerate(zip(lines, fonts)):
+            d.text((sx, sy + i * 36 * S), line, fill=ink if i == 0 else grey, font=f)
     for l in m.get("labels") or []:
         d.text(P(float(l.get("x", 0)), float(l.get("y", 0))), str(l.get("text", "")), fill=grey, font=f_mid)
     # north arrow + scale bar
