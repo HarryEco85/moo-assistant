@@ -236,6 +236,13 @@ class MooApp:
             m = Mouth(trial_settings, piper=self.mouth.piper, load=False)
             m.say(f"Hello {user_name(self.settings)}, this is how I'd sound. "
                   "You've got two meetings this afternoon, and three emails that look like they need you.", force=True)
+            wanted = trial_settings.get("tts_engine")
+            if m.last_engine and m.last_engine != wanted:
+                names = {"kokoro": "the Kokoro voices", "natural": "the Microsoft voices", "azure": "Azure",
+                         "elevenlabs": "ElevenLabs", "piper": "the offline backup voice"}
+                self.ui.add_message("sys", f"That wasn't the voice you picked: {names.get(wanted, wanted)} couldn't be "
+                                           f"used, so you heard {names.get(m.last_engine, m.last_engine)}. "
+                                           f"Reason: {m.last_error or 'unknown'}")
         threading.Thread(target=run, daemon=True, name="preview").start()
 
     # ---------- system helpers ----------

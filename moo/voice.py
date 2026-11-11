@@ -305,6 +305,7 @@ class Mouth:
         self._stop = threading.Event()
         self.speaking = False
         self.level = 0.0  # current loudness 0..1, drives the orb animation
+        self.last_engine, self.last_error = "", ""  # which voice actually spoke, and why not the chosen one
         if load:
             self._load_piper()
 
@@ -363,32 +364,46 @@ class Mouth:
                 key = get_secret("elevenlabs_key")
                 if not key:
                     raise RuntimeError("no ElevenLabs key set")
-                return _elevenlabs_synth(sentence, self.settings.get("elevenlabs_voice", ""), key, self._speed_pct())
+                out = _elevenlabs_synth(sentence, self.settings.get("elevenlabs_voice", ""), key, self._speed_pct())
+                self.last_engine, self.last_error = "elevenlabs", ""
+                return out
             except Exception as e:
                 log.warning("ElevenLabs voice unavailable (%s); trying the free voice.", e)
+                self.last_error = f"ElevenLabs: {str(e)[:120]}"
                 engine = "natural"
         if engine == "kokoro":
             try:
-                return _kokoro_synth(sentence, self.settings.get("kokoro_voice", "bf_emma"), self._speed_pct())
+                out = _kokoro_synth(sentence, self.settings.get("kokoro_voice", "bf_emma"), self._speed_pct())
+                self.last_engine, self.last_error = "kokoro", ""
+                return out
             except Exception as e:
                 log.warning("Kokoro voice unavailable (%s); trying the free voice.", e)
+                self.last_error = f"Kokoro: {str(e)[:120]}"
                 engine = "natural"
         if engine == "azure":
             key = get_azure_key()
             try:
                 if not key:
                     raise RuntimeError("no Azure key set")
-                return _azure_synth(sentence, self.settings.get("azure_voice", "en-GB-SoniaNeural"), self._speed_pct(),
-                                    key, self.settings.get("azure_region", "uksouth").strip() or "uksouth", self._pitch())
+                out = _azure_synth(sentence, self.settings.get("azure_voice", "en-GB-SoniaNeural"), self._speed_pct(),
+                                   key, self.settings.get("azure_region", "uksouth").strip() or "uksouth", self._pitch())
+                self.last_engine, self.last_error = "azure", ""
+                return out
             except Exception as e:
                 log.warning("Azure voice unavailable (%s); trying the free voice.", e)
+                self.last_error = f"Azure: {str(e)[:120]}"
                 engine = "natural"
         if engine == "natural":
             try:
-                return _edge_synth(sentence, self.settings.get("natural_voice", "en-GB-SoniaNeural"), self._speed_pct(),
-                                   self._pitch())
+                out = _edge_synth(sentence, self.settings.get("natural_voice", "en-GB-SoniaNeural"), self._speed_pct(),
+                                  self._pitch())
+                self.last_engine = "natural"
+                return out
             except Exception as e:
                 log.warning("Natural voice unavailable (%s); using offline voice.", e)
+                self.last_error = (self.last_error + "; " if getattr(self, "last_error", "") else "") + \
+                    f"Microsoft voices: {str(e)[:120]}"
+        self.last_engine = "piper"
         if self.piper is None:
             return None, 0
         from piper import SynthesisConfig

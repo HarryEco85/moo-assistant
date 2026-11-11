@@ -188,6 +188,13 @@ class SettingsWindow:
                                         font=(FONT, 10), height=24)
         self.voice_combo.pack(side="left", fill="x", expand=True, ipady=3)
         self._button(row, "▶  Hear it", self.preview).pack(side="left", padx=(8, 0))
+        self.voice_filter = tk.StringVar(value=s.get("voice_filter", "British male"))
+        frow = tk.Frame(t, bg=SURFACE)
+        frow.pack(fill="x", pady=(6, 0))
+        for opt in ("British male", "British female", "All"):
+            tk.Radiobutton(frow, text=opt, value=opt, variable=self.voice_filter, bg=SURFACE, fg=TEXT,
+                           selectcolor=SURFACE_HI, activebackground=SURFACE, activeforeground=TEXT, font=(FONT, 9),
+                           highlightthickness=0, bd=0, command=self._refilter).pack(side="left", padx=(0, 14))
         threading.Thread(target=self._load_voices, daemon=True).start()
 
         self._slider(t, "speech_rate", "Pace", -30, 30, s.get("speech_rate", 0), 1, "Slower", "Quicker")
@@ -205,15 +212,27 @@ class SettingsWindow:
                        "label": "Sonia · British"}]
         self.ui.later(self._show_voices, voices)
 
+    def _refilter(self):
+        self.s["voice_filter"] = self.voice_filter.get()
+        if getattr(self, "all_voices", None):
+            self._show_voices(self.all_voices)
+
     def _show_voices(self, voices):
         if not self.win.winfo_exists():
             return
+        self.all_voices = voices
+        f = self.voice_filter.get()
+        if f != "All":
+            accent, gender = f.split()
+            keep = [v for v in voices if v.get("accent") == accent and v.get("gender") == gender]
+            voices = keep or voices
         self.voices = voices
         self.voice_combo.configure(values=[v["label"] for v in voices])
         eng = self.s.get("tts_engine", "natural")
         cur = {"natural": self.s.get("natural_voice"), "azure": self.s.get("azure_voice"),
                "kokoro": self.s.get("kokoro_voice"), "elevenlabs": self.s.get("elevenlabs_voice"), "piper": ""}.get(eng)
         match = next((v for v in voices if v["engine"] == eng and v["id"] == cur), voices[0] if voices else None)
+        self.voice_combo.set("")
         if match:
             self.voice_var.set(match["label"])
 
