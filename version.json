@@ -1,1 +1,1 @@
-{"version": "1.21.6", "notes": "Uses the Outlook app on this PC unless the Microsoft 365 online IDs are actually set up."}
+{"version": "1.21.7", "notes": "Phone app shows which PC it is connected to and that PC's Moo version."}

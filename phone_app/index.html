@@ -188,6 +188,7 @@
     <div class="row"><span>Speak replies out loud</span><button class="toggle on" id="tVoice"></button></div>
     <div class="row"><span>Auto-send when I stop talking</span><button class="toggle on" id="tAuto"></button></div>
     <div class="row"><span>Unpair this phone</span><button class="pill" id="unpair">Unpair</button></div>
+    <div class="row"><span style="color:var(--faint);font-size:13px" id="appver">App version 1.3 · PC: checking…</span></div>
     <div class="row"><span style="color:var(--faint);font-size:13px">To install: browser menu ⋮ → Add to Home screen</span><button class="pill" id="closeSheet">Done</button></div>
   </div>
 
@@ -372,6 +373,8 @@
       const s = await rpc("moo_state_get");
       if (!s || !s.data) return;
       const d = s.data;
+      $("appver").textContent = `App version 1.3 · PC: ${d.version ? "Moo " + d.version : "needs updating"}` +
+        (d.pc_name ? ` (${d.pc_name})` : "");
       if (d.title) { showTitle(d.title); store.set("title", d.title); }
       pcFresh = (Date.now() - new Date(s.updated).getTime()) < 120000;
       online(true);
@@ -525,7 +528,12 @@
   }
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { refreshState(); poll().then(schedule); } });
   setInterval(() => { if (!document.hidden) refreshState(); }, 30000);
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  // Always pick up the newest version of the app: check on every open, and reload once when it changes.
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => r.update()).catch(() => {});
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded) { reloaded = true; location.reload(); } });
+  }
   boot();
 })();
 </script>

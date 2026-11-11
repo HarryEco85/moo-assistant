@@ -253,6 +253,7 @@ class Mobile:
             pass
         return {"name": self.s.get("assistant_name", "Moo") or "Moo", "user": user_name(self.s),
                 "title": (self.s.get("header_title") or "").strip(),
+                "version": __import__("moo").__version__, "pc_name": __import__("platform").node(),
                 "next": (stats.get("meetings", {}).get("text") or "").replace("Next: ", "") or "Nothing coming up",
                 "inbox": inbox or "Nothing urgent",
                 "reminder": f"{nxt['due'][11:16]} · {nxt['text']}" if nxt else "None set",
