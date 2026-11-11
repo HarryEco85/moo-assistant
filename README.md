@@ -153,6 +153,21 @@ Everything is saved in **Documents > Moo Drawings**, one file set per revision. 
 
 Pictures are read with the sharper Sonnet brain automatically (Settings: vision_model), even if you use Haiku day to day.
 
+
+## CCTV surveys: video to report to quote
+
+Click the **paperclip** at the top of the window and pick the survey videos (one per line), or just tell Moo the folder they're in. Name the files after the line if you can (`MH01-MH02.mp4`); otherwise she reads the start and finish manholes off the on-screen header.
+
+She watches each video (a still every few seconds, plus every point where the camera stops, because that's where operators stop on defects), reads the distance counter, and codes what she sees to MSCC5. It runs in the background, so you can carry on. When it's finished you get:
+
+- **Survey report (PDF):** a summary table of every line with its worst structural and service grades, then a page per line with each defect's distance, code, grade, description and photo. There are no prices on it, so it can go to the client.
+- **Cost breakdown (Excel):** the repairs line by line (patch liners, full-length lining when that's cheaper, dig and replace, root cutting, descaling, jetting, reinstatements, post-works CCTV), priced from your rate card, with VAT and total.
+- **Drawing:** if the lines match a drawing, the defects are marked on the pipes as coloured diamonds by grade.
+
+Then talk it through: "leave out the jetting on MH01 to MH02", "add traffic management at 350", "give me the quote wording". The wording comes back ready to drop into your quote template.
+
+**Your rates:** Moo starts with starter rates. Set yours once and they stick: "patch liners are 420", "lining's 90 a metre". The coding is a first pass from the video, so give it a quick check before it goes out (the report has a "Checked by" line). Videos are processed on the PC (they're too big for the phone app). Cost is roughly 10 to 15p of Claude time per minute of footage.
+
 ## Suggestions
 
 After you give her anything (a photo, document, drawing, long email or your screen) she offers two to four next steps as buttons, on the PC and in the phone app. Tap one and she does it.

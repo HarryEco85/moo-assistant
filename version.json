@@ -1,1 +1,4 @@
-{"version": "1.22.1", "notes": "Drawing workbench: turn a drainage sketch into a DXF and PDF plan, edit it by talking, design checks. Plus tappable next-step suggestions on the PC and phone."}
+{
+  "version": "1.23.0",
+  "notes": "CCTV surveys: give Moo the line videos (paperclip button) and she codes the defects to MSCC5, writes the report with photos, prices the repairs from your rate card and marks them on the drawing. Sketches: red = foul, blue = surface."
+}

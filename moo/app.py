@@ -158,6 +158,8 @@ class MooApp:
         self.brain.on_plan = self._plan_changed
         self.brain.on_update = self.update_tool
         self.brain.on_options = self.show_options
+        self.brain.on_survey_done = self.survey_done
+        self.brain.on_survey_progress = lambda text: self.ui.add_message("sys", text)
 
     def _load_voice(self):
         from .voice import Ears, Mouth
@@ -453,7 +455,8 @@ class MooApp:
             timing.setdefault("think", time.time() - t0)
             sentences.put(sent)
         try:
-            reply = self.brain.ask(text, on_sentence=first_text if speaking else None)
+            ask_text, images = self._with_attachments(text)
+            reply = self.brain.ask(ask_text, on_sentence=first_text if speaking else None, images=images)
         except Exception as e:
             log.exception("Brain failed")
             msg = str(e)
@@ -687,6 +690,75 @@ class MooApp:
             self.ui.set_state("idle")
             self.busy.release()
             self._footer()
+
+    # ---------- attachments (paperclip) ----------
+    def attach_files(self, paths):
+        paths = [p for p in paths if p]
+        if not paths:
+            return
+        self.attached = (getattr(self, "attached", None) or []) + list(paths)
+        from pathlib import Path
+        from .survey import VIDEO_EXT
+        vids = sum(1 for p in self.attached if Path(p).suffix.lower() in VIDEO_EXT)
+        names = ", ".join(Path(p).name for p in self.attached[:4]) + (f" and {len(self.attached) - 4} more"
+                                                                       if len(self.attached) > 4 else "")
+        self.ui.add_message("sys", f"Attached: {names}")
+        if vids:
+            self.show_options(["Survey these and find the defects", "Survey them, mark the drawing and price it"])
+        else:
+            self.show_options(["What do you make of this?", "Draw this up properly in CAD"])
+
+    def _with_attachments(self, text):
+        files, self.attached = (getattr(self, "attached", None) or []), []
+        if not files:
+            return text, None
+        from pathlib import Path
+        from .screen import bytes_to_block
+        images, other = [], []
+        for f in files:
+            if Path(f).suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp") and len(images) < 6:
+                try:
+                    images.append(bytes_to_block(Path(f).read_bytes()))
+                    continue
+                except Exception:
+                    pass
+            other.append(f)
+        if other:
+            text = "[Files attached on the PC: " + "; ".join(other) + "] " + text
+        if images:
+            text = "[Photos attached.] " + text
+        return text, images or None
+
+    # ---------- CCTV surveys ----------
+    def survey_done(self, survey, page, drawing_out, error):
+        def run():
+            with self.busy:
+                if error:
+                    self.say(f"The survey didn't finish: {error[:160]}")
+                    return
+                from .survey import summary
+                if page is not None:
+                    self.show_card("image", {"image": page})
+                if drawing_out:
+                    self.show_card("image", {"image": drawing_out["image"]})
+                import os
+                for label, path in (("Open the report", survey.get("report")), ("Open the costs", survey.get("costs")),
+                                    ("Open the drawing", drawing_out and str(drawing_out["pdf"]))):
+                    if path:
+                        self.ui.add_action(label, lambda p=path: os.startfile(p))
+                note = ("[Survey finished] " + summary(survey, detail=False) +
+                        f"\nReport: {survey.get('report')}\nCost breakdown: {survey.get('costs')}" +
+                        (f"\nDefects marked on drawing {survey['drawing']}." if survey.get("drawing") else ""))
+                try:
+                    reply = self.brain.ask(note)
+                except Exception as e:
+                    reply = f"The survey's done: {len(survey['lines'])} lines, report and costs saved. ({str(e)[:80]})"
+                self.say(reply)
+                try:
+                    self.phone.notify(f"Survey done: {survey['title']}. " + reply[:600])
+                except Exception:
+                    pass
+        threading.Thread(target=run, daemon=True, name="survey-done").start()
 
     # ---------- meeting notes ----------
     def start_notes(self):

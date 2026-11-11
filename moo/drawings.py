@@ -239,7 +239,7 @@ def to_dxf(m, path):
     doc = ezdxf.new("R2010", setup=True)
     doc.units = ezdxf.units.M
     for name, col in (("BUILDING", 8), ("FOUL", 30), ("SURFACE", 5), ("COMBINED", 6), ("CHAMBERS", 7),
-                      ("TEXT", 7), ("NOTES", 7), ("TITLE", 7)):
+                      ("TEXT", 7), ("NOTES", 7), ("TITLE", 7), ("DEFECTS", 1)):
         if name not in doc.layers:
             doc.layers.add(name, color=col)
     msp = doc.modelspace()
@@ -266,6 +266,14 @@ def to_dxf(m, path):
             rot += 180
         msp.add_text(_pipe_label(m, p), height=0.25, rotation=rot, dxfattribs={"layer": "TEXT"}).set_placement(
             (mx - 0.4 * math.sin(ang), my + 0.4 * math.cos(ang)), align=TextEntityAlignment.BOTTOM_CENTER)
+    for p in m["pipes"]:
+        a, b = _node(m, p["from"]), _node(m, p["to"])
+        for i, x in enumerate([x for x in p.get("defects") or [] if x.get("grade")]):
+            f = x["at"] if x.get("at") is not None else 0.5
+            cx, cy = a["x"] + (b["x"] - a["x"]) * f, a["y"] + (b["y"] - a["y"]) * f
+            msp.add_circle((cx, cy), 0.2, dxfattribs={"layer": "DEFECTS"})
+            msp.add_text(f"{x['code']} gr{x['grade']}" + (f" @{float(x['d']):.1f}m" if x.get("d") is not None else ""),
+                         height=0.2, dxfattribs={"layer": "DEFECTS"}).set_placement((cx + 0.3, cy + 0.3 + i * 0.05))
     for n in m["nodes"]:
         r = 0.45 if n["type"] in ("manhole", "soakaway", "interceptor", "pump") else 0.3
         if n["type"] in ("inspection_chamber", "gully"):
@@ -351,7 +359,7 @@ def render(m, width=3508, height=2480):
         seg = math.hypot(bx - ax, by - ay)
         label = _pipe_label(m, p)
         bare = not (p.get("diameter_mm") or p.get("material") or pipe_figures(m, p)[1])
-        if bare and "connection" in (a["type"], b["type"]):
+        if (bare and "connection" in (a["type"], b["type"])) or any(x.get("grade") for x in p.get("defects") or []):
             continue  # plain branch: the BR label on the node says it all, keep the plan readable
         if d.textlength(label, font=f_small) > seg * 0.9:
             label = p["id"]  # short run: just its name, details are in the DXF and the checks
@@ -366,6 +374,27 @@ def render(m, width=3508, height=2480):
         rt = txt.rotate(deg, expand=True, resample=Image.BICUBIC)
         off = 34 * S
         img.paste(rt, (int(mx - rt.width / 2 + off * math.sin(ang)), int(my - rt.height / 2 - off * math.cos(ang))), rt)
+    # survey defects on their pipes (from a CCTV survey)
+    for p in m["pipes"]:
+        marks = [x for x in p.get("defects") or [] if x.get("grade")]
+        if not marks:
+            continue
+        a, b = _node(m, p["from"]), _node(m, p["to"])
+        (ax, ay), (bx, by) = P(a["x"], a["y"]), P(b["x"], b["y"])
+        unplaced = [x for x in marks if x.get("at") is None]
+        for i, x in enumerate(marks):
+            f = x["at"] if x.get("at") is not None else (unplaced.index(x) + 1) / (len(unplaced) + 1)
+            cx, cy = ax + (bx - ax) * f, ay + (by - ay) * f
+            g = int(x["grade"])
+            col = (200, 40, 40) if g >= 4 else (225, 140, 0) if g == 3 else (90, 110, 140)
+            q = 17 * S
+            d.polygon([(cx, cy - q), (cx + q, cy), (cx, cy + q), (cx - q, cy)], fill=col, outline="white")
+            t = f"{x['code']}{g}"
+            tw = d.textlength(t, font=f_small)
+            ang = math.atan2(by - ay, bx - ax)
+            tx, ty = cx - math.sin(ang) * 34 * S * (1 if i % 2 else -1), cy + math.cos(ang) * 34 * S * (1 if i % 2 else -1)
+            d.text((tx, ty), t, fill=col, font=f_small, anchor="mm")
+            taken.append((tx - tw / 2, ty - 18 * S, tx + tw / 2, ty + 18 * S))
     placed = taken
     for n in m["nodes"]:  # every symbol counts as taken space before any label goes down
         x, y = P(n["x"], n["y"])
@@ -435,6 +464,13 @@ def render(m, width=3508, height=2480):
     d.rectangle([sx0 + 28 * S, y + 3 * S, sx0 + 62 * S, y + 37 * S], outline=ink, width=max(2, int(4 * S)))
     d.text((sx0 + 110 * S, y), "Inspection chamber / gully", fill=ink, font=f_mid)
     y += 55 * S
+    if any(p.get("defects") for p in m["pipes"]):
+        for col, label in (((200, 40, 40), "Defect grade 4-5 (code + grade)"), ((225, 140, 0), "Defect grade 3"),
+                           ((90, 110, 140), "Defect grade 1-2")):
+            cx, cy, q = sx0 + 45 * S, y + 20 * S, 17 * S
+            d.polygon([(cx, cy - q), (cx + q, cy), (cx, cy + q), (cx - q, cy)], fill=col)
+            d.text((sx0 + 110 * S, y), label, fill=ink, font=f_mid)
+            y += 55 * S
     d.text((sx0, y), "CL cover level  ·  IL invert level (m)", fill=grey, font=f_small)
     y += 80 * S
     notes = list(m.get("notes") or [])

@@ -188,6 +188,14 @@ def _icon(d, kind, cx, cy, s, col):
         d.ellipse([cx - s * 0.32, cy - s * 0.32, cx + s * 0.32, cy + s * 0.32], outline=col, width=w)
         d.line([(cx - s * 0.13, cy), (cx - s * 0.03, cy + s * 0.11), (cx + s * 0.15, cy - s * 0.1)], fill=col,
                width=w, joint="curve")
+    elif kind == "clip":
+        d.arc([cx - s * 0.16, cy - s * 0.38, cx + s * 0.16, cy - s * 0.06], 180, 360, fill=col, width=w)
+        d.line([(cx - s * 0.16, cy - s * 0.22), (cx - s * 0.16, cy + s * 0.2)], fill=col, width=w)
+        d.line([(cx + s * 0.16, cy - s * 0.22), (cx + s * 0.16, cy + s * 0.12)], fill=col, width=w)
+        d.arc([cx - s * 0.16, cy + s * 0.04, cx + s * 0.16, cy + s * 0.36], 0, 180, fill=col, width=w)
+        d.line([(cx, cy - s * 0.12), (cx, cy + s * 0.14)], fill=col, width=w)
+        d.arc([cx - s * 0.08, cy + s * 0.06, cx + s * 0.08, cy + s * 0.22], 0, 180, fill=col, width=w)
+        d.line([(cx + s * 0.08, cy + s * 0.14), (cx + s * 0.08, cy - s * 0.12)], fill=col, width=w)
     elif kind == "bell":
         d.chord([cx - s * 0.24, cy - s * 0.32, cx + s * 0.24, cy + s * 0.22], 180, 360, outline=col, width=w)
         d.line([(cx - s * 0.24, cy - s * 0.05), (cx - s * 0.28, cy + s * 0.18), (cx + s * 0.28, cy + s * 0.18),
@@ -427,7 +435,7 @@ class MooWindow:
         self.title_rest.pack(side="left", padx=(6, 0), pady=(4, 0))
         self.chip = tk.Label(header, bg=BG, bd=0)
         self.chip.pack(side="left", padx=(12, 0), pady=(3, 0))
-        for kind, cmd in (("gear", self.open_settings), ("grid", self.open_office), ("stop", self.app.stop_speaking)):
+        for kind, cmd in (("gear", self.open_settings), ("grid", self.open_office), ("stop", self.app.stop_speaking), ("clip", self.pick_files)):
             b = tk.Label(header, bg=BG, bd=0, cursor="hand2")
             b.pack(side="right", padx=(6, 0))
             normal, hover = self._icon_button(kind, False), self._icon_button(kind, True)
@@ -741,6 +749,14 @@ class MooWindow:
         self.root.after(33, self._animate)
 
     # ---------- settings & appearance ----------
+    def pick_files(self):
+        from tkinter import filedialog
+        vids = "*.mp4 *.avi *.mov *.mkv *.wmv *.mpg *.mpeg *.m4v *.asf *.ts *.mts *.vob"
+        paths = filedialog.askopenfilenames(parent=self.root, title="Attach files for Moo", filetypes=[
+            ("Videos, photos, drawings, documents", vids + " *.jpg *.jpeg *.png *.pdf *.dxf *.docx *.xlsx"),
+            ("Survey videos", vids), ("All files", "*.*")])
+        self.app.attach_files(list(paths or []))
+
     def open_settings(self):
         from .settings_ui import SettingsWindow
         if getattr(self, "_settings", None) and self._settings.win.winfo_exists():

@@ -95,6 +95,9 @@ Speed (they're waiting while you work):
 Drawings and documents (be a proper partner, like Jarvis):
 - If they send a sketch, photo or description of a drainage layout and want it drawn up (or it obviously is one), read it carefully and use drawing_create. Estimate positions in metres from the sketch; use any dimensions written on it. Label chambers as they are on the sketch (MH1, IC2...), otherwise number them in flow order.
 - Then talk it through: say what you drew, flag the one or two design checks that matter, and ask about anything you had to guess (levels, sizes). Edits like "move MH2 3 m east", "make P3 150mm", "add a gully by the back door" use drawing_edit.
+- Hand sketches: red lines are foul, blue lines are surface water, unless the sketch or {user} says otherwise.
+- CCTV survey videos (attached on the PC, or a folder of them): use survey_videos, passing the drawing name if the lines match a drawing you've done. It runs in the background: say it's started and roughly how long, then carry on. A message starting [Survey finished] is the result: give a short rundown (worst lines first, any grade 4-5 defects, recommended works, total ex VAT) and offer_options. Mention once that the coding is a first pass from the video and wants a quick check before it goes to the client.
+- Quotes from a survey: use survey_quote (it re-prices from the rate card and rebuilds the cost breakdown), then give {user} the scope-of-works wording to drop into the quote template, line by line, with the total ex VAT. Prices come ONLY from the rate card, never your own guesses. If the tool says the rates are starter rates, say so once and ask for theirs ("patch liners are 420"), which rate_card saves for good.
 - Whenever you've been given something (a photo, a document, a screen, a drawing, a long email), finish with offer_options: 2-4 smart next steps they'd actually want, e.g. "Draw it up in CAD", "Check the falls", "Price this job", "Draft the reply".
 
 Big jobs (plan, act, check):
@@ -323,6 +326,25 @@ def _tools():
         {"name": "drawing_list", "description": "List saved drawings.", "input_schema": {"type": "object", "properties": {}}},
         {"name": "drawing_open", "description": "Open the current drawing's DXF (in their CAD program) or PDF on the PC.",
          "input_schema": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["dxf", "pdf"]}}}},
+        {"name": "survey_videos", "description": "Watch CCTV drain survey videos (one per line), code the defects to MSCC5, write the survey report (PDF, photos, no prices) and a priced cost breakdown (Excel), and mark the defects on a drawing. Runs in the background.",
+         "input_schema": {"type": "object", "properties": {
+             "paths": {"type": "array", "items": {"type": "string"}, "description": "Video files and/or folders, as given or attached"},
+             "site": {"type": "string"}, "title": {"type": "string", "description": "e.g. CCTV drainage survey - Part 1"},
+             "drawing": {"type": "string", "description": "Drawing to mark the defects on (default: the one you're working on)"}},
+             "required": ["paths"]}},
+        {"name": "survey_show", "description": "Full findings of a survey (default the latest): every defect with distance, MSCC5 code, grade, and the priced works per line. Shows the report's first page.",
+         "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}}},
+        {"name": "survey_quote", "description": "Re-price a survey's repairs (default the latest) and rebuild the cost breakdown. Leave items out, put them back, or add extra items.",
+         "input_schema": {"type": "object", "properties": {
+             "name": {"type": "string"},
+             "exclude": {"type": "array", "items": {"type": "string"}, "description": "'<line name>|<item key>' e.g. 'MH01 to MH02|jet', or 'post_cctv'"},
+             "include": {"type": "array", "items": {"type": "string"}, "description": "Put excluded items back"},
+             "extras": {"type": "array", "items": {"type": "object", "properties": {
+                 "label": {"type": "string"}, "qty": {"type": "number"}, "unit": {"type": "string"},
+                 "rate": {"type": "number"}, "why": {"type": "string"}}, "required": ["label", "rate"]}},
+             "clear_extras": {"type": "boolean"}}}},
+        {"name": "rate_card", "description": "Show the repair rate card, or change rates for good (keys: jet, descale, root_cut, patch_100, patch_150, patch_225, reinstate, line_setup, line_m, excavate, post_cctv; or a new key with label/unit/rate).",
+         "input_schema": {"type": "object", "properties": {"set": {"type": "object", "description": "{key: rate} or {key: {label, unit, rate}}"}}}},
         {"name": "offer_options", "description": "Show 2-4 tappable next steps (short labels, written as what the user would say).",
          "input_schema": {"type": "object", "properties": {"options": {"type": "array", "items": {"type": "string"}}},
                           "required": ["options"]}},
@@ -338,7 +360,7 @@ def _tools():
 # Tools that change Moo's own state in order; never run side by side
 SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
               "cancel_reminder", "request_approval", "log_decision", "ban_word", "moo_update", "car_command",
-              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "mark_promise_done", "create_email_draft"}
+              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "survey_videos", "survey_quote", "rate_card", "mark_promise_done", "create_email_draft"}
 FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
            (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
            (("vh3_",), "Checking VH3."),
@@ -349,6 +371,7 @@ FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your email
            (("football",), "Checking the football."),
            (("drawing_create",), "Right, let me draw that up."),
            (("drawing_edit",), "Changing that now."),
+           (("survey_quote", "survey_show"), "Pulling the survey up."),
            (("look_at_screen",), "Let me have a look."),
            (("use_skill", "make_plan"), "On it."),
            (("web_search",), "Let me look that up.")]
@@ -405,6 +428,10 @@ class Brain:
         self.vh3 = MCPConnector("vh3", settings)
         from .car import Car
         self.car = Car(settings)
+        from .survey import SurveyJob
+        self.surveys = SurveyJob(self)
+        self.on_survey_done = lambda survey, page, drawing, error: None
+        self.on_survey_progress = lambda text: None
         self.memory = Memory()
         self.history = History()
         self.usage = Usage()
@@ -661,6 +688,8 @@ class Brain:
                 return self.journal.search(args.get("query", ""), args.get("days", 90))
             if name.startswith("drawing_"):
                 return self._drawing_tool(name, args)
+            if name.startswith("survey_") or name == "rate_card":
+                return self._survey_tool(name, args)
             if name == "offer_options":
                 opts = [str(o).strip()[:60] for o in (args.get("options") or []) if str(o).strip()][:4]
                 if opts:
@@ -812,6 +841,44 @@ class Brain:
                 f"Design checks: " + ("; ".join(issues) if issues else "nothing flagged.") +
                 f"\nCurrent model: {detail}\nTell them briefly what you drew, the most important check or two, "
                 "and offer next steps with offer_options.")
+
+    def _survey_tool(self, name, args) -> str:
+        from . import survey as SV
+        if name == "rate_card":
+            if args.get("set"):
+                card = SV.set_rates(args["set"])
+            card, mine = SV.rates()
+            return ("Rate card (ex VAT)" + ("" if mine else ", STARTER RATES not yet set by the user") + ":\n" +
+                    "\n".join(f"- {k}: {v['label']}, £{float(v['rate']):g} per {v['unit']}" for k, v in card.items()))
+        if name == "survey_videos":
+            if self.on_phone:
+                return "Survey videos are too big for the phone: they need to be on the PC (attach them there, or give me the folder)."
+            drawing = args.get("drawing") or getattr(self, "current_drawing", None)
+            return self.surveys.start(args.get("paths") or [], site=args.get("site", ""), title=args.get("title", ""),
+                                      drawing=drawing, on_done=self.on_survey_done, on_progress=self.on_survey_progress)
+        s = SV.load(args.get("name"))
+        if not s:
+            return "No survey found. " + (", ".join(n for n, _ in SV.listing()) or "None done yet.")
+        if name == "survey_quote":
+            ex = set(s.get("exclude") or [])
+            ex |= set(args.get("exclude") or [])
+            ex -= set(args.get("include") or [])
+            s["exclude"] = sorted(ex)
+            if args.get("clear_extras"):
+                s["extras"] = []
+            s["extras"] = (s.get("extras") or []) + list(args.get("extras") or [])
+            SV.price(s)
+            s["costs"] = str(SV.write_costs(s))
+            SV.save(s)
+            _, mine = SV.rates()
+            return (SV.summary(s, detail=False) + "\n" + "\n".join(
+                f"{ln['name']}: " + "; ".join(f"{w['label']} x{w['qty']:g} = £{w['total']:.2f} ({w['why']})" for w in ln["works"])
+                for ln in s["lines"] if ln.get("works")) +
+                f"\nCost breakdown saved: {s['costs']}" +
+                ("" if mine else "\nTHESE ARE STARTER RATES, not the user's: say so and ask for theirs."))
+        _, first = SV.write_report(s)
+        self.show_card("image", {"image": first})
+        return SV.summary(s) + f"\nReport: {s.get('report')}\nCosts: {s.get('costs')}"
 
     def _decisions(self) -> str:
         try:
