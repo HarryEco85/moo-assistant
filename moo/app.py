@@ -39,6 +39,7 @@ TAKE_NOTES = re.compile(r"\b(take|start( taking)?|keep) (some )?(notes|minutes)\
 STOP_NOTES = re.compile(r"\b(stop|finish|end|done|wrap up)( taking)?( the)? (notes|minutes|recording)\b|"
                         r"\bthat'?s the end of the (meeting|call)\b|\bstop notes\b", re.I)
 FILLER = re.compile(r"^\W*(so|um+|uh+|erm*|er|ah+|well|and|hmm+)\W*$", re.I)
+DISMISS = re.compile(r"^(no|nope|nah|no thanks?|that'?s (all|it|fine|everything)|thanks?( you)?|cheers|ta|nothing|all good|sorted|leave it)[.!, ]*(moo|mate)?[.!]*$", re.I)
 APPROVE = re.compile(r"^(approve(d)?( it| that)?|go ahead( with it)?|yes,? (do|go ahead with) (it|that))[.!]?$", re.I)
 REJECT = re.compile(r"^(reject( it| that)?|don'?t do (it|that)|no,? (leave|skip) (it|that))[.!]?$", re.I)
 UPDATE_INSTALL = re.compile(r"\b(install|do|run|get|apply) (the |that )?update\b|\bupdate yourself\b", re.I)
@@ -159,6 +160,7 @@ class MooApp:
         self.brain.on_update = self.update_tool
         self.brain.on_options = self.show_options
         self.brain.on_survey_done = self.survey_done
+        self.brain.on_alert = self._reminder_due
         self.brain.on_survey_progress = lambda text: self.ui.add_message("sys", text)
 
     def _load_voice(self):
@@ -331,10 +333,12 @@ class MooApp:
             try:
                 self.ui.add_message("You", command)
                 self._answer(command)
+                self._follow_next = True
             finally:
                 if not (self.mouth and self.mouth.speaking):
                     self.ui.set_state("idle")
                 self.busy.release()
+                self._maybe_follow_up()
         threading.Thread(target=run, daemon=True, name="wake-command").start()
 
     def _barged(self, preroll):
@@ -379,9 +383,95 @@ class MooApp:
                 return
             self.ui.add_message("You", text)
             self._answer(text)
+            self._follow_next = True
         finally:
             if not (self.mouth and self.mouth.speaking):
                 self.ui.set_state("idle")
+            self.busy.release()
+            self._maybe_follow_up()
+
+    # ---------- conversation mode: carry on without the wake word ----------
+    def _maybe_follow_up(self, depth=0):
+        if not getattr(self, "_follow_next", False):
+            return
+        self._follow_next = False
+        if not self.settings.get("follow_up", True) or depth >= 6 or not (self.ears and self.ears.available):
+            return
+        threading.Thread(target=self._follow_up, args=(depth,), daemon=True, name="follow-up").start()
+
+    def _follow_up(self, depth):
+        for _ in range(1200):  # let her finish speaking first
+            if not (self.mouth and self.mouth.speaking):
+                break
+            time.sleep(0.1)
+        time.sleep(0.3)
+        if (self.ears and self.ears.notes_started) or not self.busy.acquire(timeout=1):
+            return
+        try:
+            self.ui.set_state("listening", "Go on, I'm listening")
+            try:
+                text = self.ears.listen(start_timeout=float(self.settings.get("follow_up_seconds", 6)))
+            except RuntimeError:
+                return
+            text = re.sub(r"^(hey )?(moo|jarvis)[,.!]?\s*", "", text or "", flags=re.I).strip()
+            if not text or FILLER.match(text) or len(text) < 2:
+                return
+            if DISMISS.match(text):
+                self.ui.add_message("You", text)
+                self.say("Righto.")
+                return
+            self.ui.add_message("You", text)
+            self._answer(text)
+            self._follow_next = True
+        finally:
+            if not (self.mouth and self.mouth.speaking):
+                self.ui.set_state("idle")
+            self.busy.release()
+            self._maybe_follow_up(depth + 1)
+
+    # ---------- welcome back and routines ----------
+    def welcome_back(self, away_s, log_items):
+        def run():
+            if not self.busy.acquire(timeout=5):
+                return
+            try:
+                pending = len(self.approvals.pending()) if self.approvals else 0
+                mins = int(away_s // 60)
+                facts = (f"[{user_name(self.settings)} has just come back to the PC after {mins} minutes away. "
+                         "Greet them like Jarvis would: one short, warm line, then ONLY what matters from while they "
+                         "were away (max three things, most important first) and anything due in the next hour. "
+                         "If nothing happened, just a quick welcome back. No tools unless something needs checking. "
+                         "Keep it under 40 words.]\n"
+                         f"While away: {'; '.join(log_items[-8:]) or 'nothing flagged'}.\n"
+                         f"Waiting for their OK: {pending}.")
+                try:
+                    reply = self.brain.ask(facts)
+                except Exception:
+                    reply = f"Welcome back, {user_name(self.settings)}."
+                self.say(reply)
+                self._follow_next = True
+            finally:
+                self.busy.release()
+                self._maybe_follow_up()
+        threading.Thread(target=run, daemon=True, name="welcome").start()
+
+    def run_routine(self, r):
+        if not self.busy.acquire(timeout=120):
+            return
+        try:
+            self.ui.add_message("sys", f"Routine: {r['name']}")
+            try:
+                reply = self.brain.ask(f"[Routine '{r['name']}', running on its own at {r['at']}. Do it now and "
+                                       f"report back briefly.] {r['instruction']}")
+            except Exception as e:
+                reply = f"The {r['name']} routine didn't work: {str(e)[:120]}"
+            if self.watcher.quiet_now():
+                self.ui.add_message("Moo", reply)
+            else:
+                self.say(reply)
+            if self.settings.get("alerts_to_phone", True):
+                threading.Thread(target=self.phone.notify, args=(f"{r['name']}\n{reply}",), daemon=True).start()
+        finally:
             self.busy.release()
 
     def text_request(self, text):

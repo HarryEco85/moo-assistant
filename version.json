@@ -1,4 +1,4 @@
 {
-  "version": "1.23.0",
-  "notes": "CCTV surveys: give Moo the line videos (paperclip button) and she codes the defects to MSCC5, writes the report with photos, prices the repairs from your rate card and marks them on the drawing. Sketches: red = foul, blue = surface."
+  "version": "1.24.0",
+  "notes": "Jarvis mode: carry on talking without the wake word, welcome back with what you missed, run the PC (apps, websites, volume, music, lock), timers, 'tell me when' email watches, routines, news, read links, make Word/Excel files, smart home via Home Assistant."
 }

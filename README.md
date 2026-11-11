@@ -154,6 +154,19 @@ Everything is saved in **Documents > Moo Drawings**, one file set per revision. 
 Pictures are read with the sharper Sonnet brain automatically (Settings: vision_model), even if you use Haiku day to day.
 
 
+## Jarvis mode
+
+- **Carry on talking:** after she answers a spoken question she keeps listening for a few seconds, so you can follow up without saying "Hey Moo" again. Say "thanks" or "that's all" to finish. (Settings > Listening.)
+- **Welcome back:** when you come back to the PC after 20 minutes or more, she greets you and tells you only what mattered while you were away. (Settings > Proactive.)
+- **Run the PC:** "open Excel", "open the BBC", "volume 30", "pause the music", "skip", "lock the PC", "screen off", "show the desktop".
+- **Timers:** "ten minute timer for the tea", "how long's left?", "cancel the timer".
+- **Tell me when:** "tell me when Dave replies about Tilbury". The moment a matching email lands she tells you, out loud and on your phone.
+- **Routines:** "every weekday at 7:30 give me the briefing", "Fridays at 3, do the weekly summary". They run on their own and she reports back.
+- **News:** "what's the news?", "anything in Kent?", "business headlines", "construction news".
+- **Links:** paste a link and ask what it says, or ask her to compare two pages.
+- **Documents:** "put that in a Word doc", "make me a spreadsheet of the van costs". They're saved in Documents > Moo Documents and opened. RAMS and quote wording still come as plain wording unless you ask for a file.
+- **Smart home:** lights, heating, plugs and blinds through Home Assistant (which covers Hive, Hue, Tado, Nest and most others). Add its address and a token in Settings > Accounts. Unlocking doors, opening the garage and turning off the alarm always need your OK first.
+
 ## CCTV surveys: video to report to quote
 
 Click the **paperclip** at the top of the window and pick the survey videos (one per line), or just tell Moo the folder they're in. Name the files after the line if you can (`MH01-MH02.mp4`); otherwise she reads the start and finish manholes off the on-screen header.

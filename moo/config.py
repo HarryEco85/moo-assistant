@@ -103,6 +103,11 @@ DEFAULTS = {
     "football_alerts": True,  # match-day and full-time messages
     "tesla_api_base": "https://api.teslemetry.com",
     "tesla_vin": "",
+    "follow_up": True,  # keep listening after an answer, Jarvis-style
+    "follow_up_seconds": 6,
+    "welcome_back": True,
+    "away_minutes": 20,
+    "ha_url": "",  # Home Assistant, for lights and heating
     "mobile_url": "",  # the phone app's Supabase project
     "mobile_key": "",
     "mobile_enabled": True,

@@ -108,6 +108,14 @@ Big jobs (plan, act, check):
 Asking first (the approval queue):
 - If you think something would help but {user} didn't ask for it (drafting a chase, a reply, setting a reminder, messaging their phone, running a skill), don't do it: use request_approval with a short title, a one-line reason and the exact instruction you'd carry out. {user} approves or rejects it on the PC or phone. Messages starting "[Approved" mean {user} has said yes: just do it.
 
+Running things, like Jarvis:
+- You can run the PC (pc_control): open apps and websites, volume, music play/pause/skip, timers ("10 minute timer" = timer of 600 seconds), lock the PC, screen off, show the desktop. Just do it and confirm in a few words.
+- News: the news tool for headlines (top, uk, business, technology, kent, sport, football, construction...). Give the three or four that matter to {user}, not a list of eight.
+- A link or "what does this page say": read_webpage. A finished document they asked for as a file ("put that in a Word doc", "make me a spreadsheet of..."): make_document, which saves and opens it. RAMS and quote wording still default to plain wording in the chat unless they ask for a document.
+- "Tell me when X emails / replies / when something about Y comes in": watch_for. "Every Monday at 8, do X": routine. Routines run on their own at that time and you tell {user} the result.
+- Smart home (lights, heating, plugs, blinds) through smart_home. Unlocking doors, opening the garage or turning off the alarm always goes for their OK first.
+- Be a step ahead: when you've answered, if there's an obvious next thing {user} would want, offer it in one short line (or offer_options), the way Jarvis would. Don't pad.
+
 Seeing:
 - "Look at this", "what's this", "check this", "what do you make of this" about something on the PC means look_at_screen. When a photo comes from the phone, it's attached to the message: look closely (defects, readings, labels, drawings) and say what you see and what you'd do.
 
@@ -345,6 +353,45 @@ def _tools():
              "clear_extras": {"type": "boolean"}}}},
         {"name": "rate_card", "description": "Show the repair rate card, or change rates for good (keys: jet, descale, root_cut, patch_100, patch_150, patch_225, reinstate, line_setup, line_m, excavate, post_cctv; or a new key with label/unit/rate).",
          "input_schema": {"type": "object", "properties": {"set": {"type": "object", "description": "{key: rate} or {key: {label, unit, rate}}"}}}},
+        {"name": "pc_control", "description": "Run the PC: open an app or website, volume, media keys, timers, lock, screen off, show desktop.",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": ["open_app", "open_website", "volume", "media", "timer", "list_timers",
+                                                   "cancel_timer", "lock", "screen_off", "minimise_all"]},
+             "target": {"type": "string", "description": "App name, website name/URL/search, timer label, or media command (play, pause, next, previous)"},
+             "value": {"type": "string", "description": "Volume 0-100/up/down/mute, or timer length in SECONDS"}},
+             "required": ["action"]}},
+        {"name": "news", "description": "Latest headlines from the BBC (or Construction News).",
+         "input_schema": {"type": "object", "properties": {"topic": {"type": "string", "enum": [
+             "top", "uk", "world", "business", "technology", "politics", "kent", "birmingham", "sport", "football",
+             "science", "construction"]}}}},
+        {"name": "read_webpage", "description": "Read the text of a web page (a link they've given you, or one from a search).",
+         "input_schema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
+        {"name": "make_document", "description": "Make a proper file and open it: a Word document (docx, or pdf) from light markdown (# headings, - bullets, | tables |, **bold**), or an Excel spreadsheet (xlsx) from rows (first row headers; cells starting = are formulas). Saved in Documents > Moo Documents.",
+         "input_schema": {"type": "object", "properties": {
+             "kind": {"type": "string", "enum": ["docx", "xlsx", "pdf"]}, "title": {"type": "string"},
+             "content": {"type": "string"}, "rows": {"type": "array", "items": {"type": "array", "items": {}}},
+             "sheets": {"type": "object", "description": "For several sheets: {sheet name: rows}"}},
+             "required": ["kind", "title"]}},
+        {"name": "smart_home", "description": "Lights, heating, plugs, blinds, scenes and sensors through Home Assistant. Use list to see what's there.",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": ["list", "status", "on", "off", "toggle", "set"]},
+             "name": {"type": "string", "description": "Device name as they say it, e.g. 'kitchen lights', 'heating'"},
+             "value": {"type": "string", "description": "For set: temperature, brightness %, blind position %"}},
+             "required": ["action"]}},
+        {"name": "watch_for", "description": "Tell the user the moment an email arrives from someone or about something ('tell me when Dave replies'). Or list / cancel watches.",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": ["add", "list", "cancel"]},
+             "what": {"type": "string", "description": "Plain words, e.g. 'Dave Smith replies about the Tilbury quote'"},
+             "sender": {"type": "string", "description": "Name or email address part to match"},
+             "words": {"type": "array", "items": {"type": "string"}, "description": "Words that must all appear"},
+             "days": {"type": "integer"}, "repeat": {"type": "boolean"}, "ref": {"type": "string"}},
+             "required": ["action"]}},
+        {"name": "routine", "description": "Something to do on a schedule ('every weekday at 7:30 give me the briefing', 'Fridays at 3, do the weekly summary'). Add, list or remove.",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": ["add", "list", "remove"]}, "name": {"type": "string"},
+             "at": {"type": "string", "description": "HH:MM"}, "days": {"type": "string", "description": "daily, weekdays, weekends, or mon,wed,fri"},
+             "instruction": {"type": "string", "description": "What to do, written as their request"}, "ref": {"type": "string"}},
+             "required": ["action"]}},
         {"name": "offer_options", "description": "Show 2-4 tappable next steps (short labels, written as what the user would say).",
          "input_schema": {"type": "object", "properties": {"options": {"type": "array", "items": {"type": "string"}}},
                           "required": ["options"]}},
@@ -360,7 +407,7 @@ def _tools():
 # Tools that change Moo's own state in order; never run side by side
 SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
               "cancel_reminder", "request_approval", "log_decision", "ban_word", "moo_update", "car_command",
-              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "survey_videos", "survey_quote", "rate_card", "mark_promise_done", "create_email_draft"}
+              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "survey_videos", "survey_quote", "rate_card", "pc_control", "watch_for", "routine", "smart_home", "make_document", "mark_promise_done", "create_email_draft"}
 FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
            (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
            (("vh3_",), "Checking VH3."),
@@ -372,6 +419,9 @@ FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your email
            (("drawing_create",), "Right, let me draw that up."),
            (("drawing_edit",), "Changing that now."),
            (("survey_quote", "survey_show"), "Pulling the survey up."),
+           (("news",), "Checking the headlines."),
+           (("read_webpage",), "Reading it now."),
+           (("make_document",), "Putting that together."),
            (("look_at_screen",), "Let me have a look."),
            (("use_skill", "make_plan"), "On it."),
            (("web_search",), "Let me look that up.")]
@@ -430,6 +480,12 @@ class Brain:
         self.car = Car(settings)
         from .survey import SurveyJob
         self.surveys = SurveyJob(self)
+        from .jarvis import PC, Home, Watches, Routines
+        self.on_alert = lambda text: None
+        self.pc = PC(on_timer=lambda text: self.on_alert(text))
+        self.home = Home(settings)
+        self.watches = Watches()
+        self.routines = Routines()
         self.on_survey_done = lambda survey, page, drawing, error: None
         self.on_survey_progress = lambda text: None
         self.memory = Memory()
@@ -688,6 +744,8 @@ class Brain:
                 return self.journal.search(args.get("query", ""), args.get("days", 90))
             if name.startswith("drawing_"):
                 return self._drawing_tool(name, args)
+            if name in ("pc_control", "news", "read_webpage", "make_document", "smart_home", "watch_for", "routine"):
+                return self._jarvis_tool(name, args)
             if name.startswith("survey_") or name == "rate_card":
                 return self._survey_tool(name, args)
             if name == "offer_options":
@@ -841,6 +899,57 @@ class Brain:
                 f"Design checks: " + ("; ".join(issues) if issues else "nothing flagged.") +
                 f"\nCurrent model: {detail}\nTell them briefly what you drew, the most important check or two, "
                 "and offer next steps with offer_options.")
+
+    def _jarvis_tool(self, name, args) -> str:
+        from . import jarvis as J
+        if name == "pc_control":
+            if self.on_phone and args.get("action") in ("open_app", "open_website", "minimise_all"):
+                return "They're on their phone, away from the PC: opening things there won't help. Send the link instead."
+            return self.pc.do(args.get("action", ""), args.get("target", ""), args.get("value"))
+        if name == "news":
+            return J.news(args.get("topic") or "top")
+        if name == "read_webpage":
+            self.status("Reading the page")
+            return J.read_webpage(args.get("url", ""))
+        if name == "make_document":
+            self.status("Making the document")
+            path = J.make_document(args.get("kind", "docx"), args.get("title", "Document"), args.get("content", ""),
+                                   args.get("rows"), args.get("sheets"))
+            if self.on_phone:
+                return f"Saved on the PC as {path.name} (Documents > Moo Documents). Offer to send it by email if they need it now."
+            try:
+                import os
+                os.startfile(str(path))
+                return f"Saved and opened: {path.name} (Documents > Moo Documents)."
+            except Exception:
+                return f"Saved: {path}"
+        if name == "smart_home":
+            action, dev = args.get("action", "list"), args.get("name", "")
+            if self.home.needs_ok(action, dev) and not self._approved_run:
+                item = self.approvals.add(f"Home: {action} {dev}", "Opens up the house",
+                                          f"Use smart_home with action {action} and name {dev} now.", source="moo") \
+                    if self.approvals else None
+                if item:
+                    self.on_approval(item)
+                return "That opens up the house, so it's waiting for their OK. Tell them in a few words."
+            return self.home.do(action, dev, args.get("value"))
+        if name == "watch_for":
+            a = args.get("action", "list")
+            if a == "add":
+                return self.watches.add(args.get("what", ""), args.get("sender", ""), args.get("words"),
+                                        int(args.get("days") or 14), bool(args.get("repeat")))
+            if a == "cancel":
+                return self.watches.cancel(args.get("ref") or args.get("what", ""))
+            return self.watches.text()
+        if name == "routine":
+            a = args.get("action", "list")
+            if a == "add":
+                return self.routines.add(args.get("name") or args.get("instruction", "")[:40], args.get("at", ""),
+                                         args.get("days", "weekdays"), args.get("instruction", ""))
+            if a == "remove":
+                return self.routines.remove(args.get("ref") or args.get("name", ""))
+            return self.routines.text()
+        return "Unknown tool."
 
     def _survey_tool(self, name, args) -> str:
         from . import survey as SV

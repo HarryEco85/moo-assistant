@@ -115,6 +115,7 @@ class Watcher:
     # ---------- control ----------
     def start(self):
         threading.Thread(target=self._loop, daemon=True, name="proactive").start()
+        threading.Thread(target=self._presence, daemon=True, name="presence").start()
         if self.s.get("outlook_mode", "desktop") == "desktop" or not self.s.get("ms_client_id"):
             try:
                 from .outlook_desktop import watch_new_mail
@@ -149,9 +150,12 @@ class Watcher:
     # ---------- delivery ----------
     def alert(self, text, title="Moo", speak=True, urgent=False):
         worker = {"New email": "email", "Coming up": "meetings", "Promise due": "promises", "Diary clash": "clashes",
-                  "VH3 check": "vh3", "Waiting on you": "waiting", "End of day": "wrap"}.get(title)
+                  "VH3 check": "vh3", "Waiting on you": "waiting", "End of day": "wrap", "Watch": "email",
+                  "Routine": "routines"}.get(title)
         if worker:
             self._note(worker, alert=text[:160])
+        if getattr(self, "_away", False):
+            self.away_log.append(f"{title}: {text}"[:220])
         if self.quiet_now() and not urgent:
             log.info("Quiet: held alert %s", text[:80])
             return
@@ -181,7 +185,8 @@ class Watcher:
                                     ("promises", self._scan_promises), ("promises", self._promise_reminders),
                                     ("clashes", self._clash_check), ("vh3", self._vh3_check),
                                     ("waiting", self._waiting), ("wrap", self._wrap),
-                                    ("car", self._car_jobs), ("football", self._football)):
+                                    ("car", self._car_jobs), ("football", self._football),
+                                    ("routines", self._routines)):
                     try:
                         job()
                     except Exception as e:
@@ -191,6 +196,35 @@ class Watcher:
             if self._wake.is_set():
                 self._wake.clear()
                 self._stop.wait(3)  # give Outlook a moment to file it
+
+    # ---------- routines ----------
+    def _routines(self):
+        for r in self.app.brain.routines.due():
+            self._note("routines", f"Running {r['name']}")
+            threading.Thread(target=self.app.run_routine, args=(r,), daemon=True, name="routine").start()
+
+    # ---------- welcome back ----------
+    def _presence(self):
+        """Notice when you come back to the desk, and tell you what happened while you were away."""
+        from .jarvis import idle_seconds, WIN
+        if not WIN:
+            return
+        self._away, self.away_log, gone_at, last_greet = False, [], 0.0, 0.0
+        while not self._stop.wait(2):
+            try:
+                idle = idle_seconds()
+            except Exception:
+                return
+            away_after = max(5, int(self.s.get("away_minutes", 20) or 20)) * 60
+            if not self._away and idle >= away_after:
+                self._away, gone_at, self.away_log = True, time.time() - idle, []
+            elif self._away and idle < 3:
+                self._away = False
+                hour = datetime.now().hour
+                if (self.s.get("welcome_back", True) and time.time() - last_greet > 900 and 6 <= hour < 22
+                        and not self.quiet_now()):
+                    last_greet = time.time()
+                    self.app.welcome_back(time.time() - gone_at, list(self.away_log))
 
     # ---------- the car and the football ----------
     def _car_jobs(self):
@@ -320,6 +354,9 @@ class Watcher:
             return
         self.state["seen_emails"] += [i for i, _ in new]
         self._save()
+        for w, text in self.app.brain.watches.check(new):
+            first = text.strip().split("\n")[0][:160]
+            self.alert(f"The one you asked me to watch for: {w['what']}. {first}", "Watch", urgent=True)
         vips = self.s.get("vip_senders", "")
         prompt = (f"You triage email for {user_name(self.s)}. {self.s.get('about_you', '')}\n"
                   f"VIPs (always important): {vips or 'none'}\n"

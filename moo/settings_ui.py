@@ -318,6 +318,10 @@ class SettingsWindow:
         self._slider(t, "listen_pause", "How long a pause means you've finished", 0.6, 3.0,
                      s.get("listen_pause", 1.2), 0.1, "Quick", "Plenty of time")
         self._check(t, "barge_in", "Stop talking when I start speaking", s.get("barge_in", True))
+        self._check(t, "follow_up", "Keep listening after she answers, so I can carry on without the wake word",
+                    s.get("follow_up", True))
+        self._slider(t, "follow_up_seconds", "How long she waits for a follow-up", 3, 12,
+                     s.get("follow_up_seconds", 6), 1, "Short", "Long")
         self._combo(t, "barge_sensitivity", "How easily I can interrupt her",
                     [("low", "Low (use if she stops for no reason)"), ("medium", "Medium"),
                      ("high", "High (use with a headset)")], s.get("barge_sensitivity", "medium"))
@@ -351,6 +355,10 @@ class SettingsWindow:
                     s.get("vh3_alerts", True))
         self._check(t, "learn_memory", "Offer to remember things she notices about me", s.get("learn_memory", True))
         self._check(t, "football_alerts", "Match-day and full-time football alerts", s.get("football_alerts", True))
+        self._check(t, "welcome_back", "Welcome me back when I return to the PC, with what I missed",
+                    s.get("welcome_back", True))
+        self._slider(t, "away_minutes", "Counts as away after (minutes)", 5, 60, s.get("away_minutes", 20), 5,
+                     "5 min", "An hour")
         self._check(t, "suggest_actions", "Offer to draft replies and quote chases (only with my OK)",
                     s.get("suggest_actions", True))
         self._check(t, "log_decisions", "Keep a log of decisions I make, for later", s.get("log_decisions", True))
@@ -450,6 +458,12 @@ class SettingsWindow:
                           else "teslemetry.com > sign in with Tesla > Console > Access tokens. See the README."))
         self._entry(t, "tesla_api_base", "Tesla API address", s.get("tesla_api_base", "https://api.teslemetry.com"),
                     note="Leave as it is for Teslemetry.")
+        tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
+        self._entry(t, "ha_url", "Smart home: Home Assistant address", s.get("ha_url", ""),
+                    note="e.g. http://homeassistant.local:8123 (or your Nabu Casa address to work away from home).")
+        self._entry(t, "ha_token", "Home Assistant long-lived token", "", show="•",
+                    note=("Saved. Paste a new one to replace it, or type 'remove'." if get_secret("ha_token")
+                          else "Home Assistant > your profile > Security > Long-lived access tokens > Create."))
         self._entry(t, "azure_key", "Azure Speech key (optional)", "", show="•",
                     note=("Saved. Paste a new one to replace it, or type 'remove'." if get_azure_key()
                           else "Free tier unlocks more British voices. See the README for setup."))
@@ -691,7 +705,7 @@ class SettingsWindow:
         threading.Thread(target=run, daemon=True).start()
 
     def _store_secrets(self):
-        for key in ("gmail_app_password", "gcal_ics_url", "telegram_token", "elevenlabs_key", "tesla_token", "groq_key"):
+        for key in ("gmail_app_password", "gcal_ics_url", "telegram_token", "elevenlabs_key", "tesla_token", "groq_key", "ha_token"):
             v = self.vars[key].get().strip()
             if v:
                 set_secret(key, "" if v.lower() == "remove" else v)
@@ -729,7 +743,7 @@ class SettingsWindow:
 
         for k, w in self.vars.items():
             if k in ("api_key", "azure_key", "autostart", "gmail_app_password", "gcal_ics_url", "telegram_token",
-                     "elevenlabs_key", "tesla_token", "groq_key"):
+                     "elevenlabs_key", "tesla_token", "groq_key", "ha_token"):
                 continue
             if isinstance(w, tuple):  # combo
                 var, choices = w
