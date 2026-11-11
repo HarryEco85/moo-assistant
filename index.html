@@ -23,6 +23,8 @@
   body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
     padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
   button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  header, .hero, .glance, .approvals, .suggest, footer { flex: none; }  /* never squashed over the chat */
+  #chat { min-height: 120px; }
 
   header { display: flex; align-items: center; gap: 10px; padding: 14px 16px 6px; }
   .name { font-weight: 700; font-size: 20px; letter-spacing: .2px; text-transform: lowercase; }
