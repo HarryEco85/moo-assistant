@@ -475,7 +475,10 @@ class MooApp:
                 first = (f"first word {t['first']:.1f}s" if "first" in t else "") + \
                     (f" (thinking {t['think']:.1f}s)" if "think" in t else "") if "first" in t else f"reply {t['total']:.1f}s"
                 parts.append(heard + first)
-            if self.ears and getattr(self.ears, "last_cloud", False):
+            from .config import get_secret
+            cloud_ready = bool(get_secret("groq_key")) and self.settings.get("cloud_hearing", True)
+            if self.ears and (getattr(self.ears, "last_cloud", False) or
+                              (cloud_ready and getattr(self.ears, "last_cloud", None) is None)):
                 parts.append("hearing in the cloud")
             elif self.ears and self.ears.whisper_device:
                 parts.append(f"hearing on {self.ears.whisper_device}")

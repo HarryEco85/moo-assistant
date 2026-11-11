@@ -560,6 +560,7 @@ class Ears:
         self.models_ready = False
         self.wake_error = ""
         self.whisper_device = ""
+        self.last_cloud = None  # None until she's heard you once
         self.last_transcribe_s = None
         self._last_wake = 0.0
 
