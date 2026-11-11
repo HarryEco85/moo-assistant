@@ -355,6 +355,8 @@ class SettingsWindow:
                     s.get("vh3_alerts", True))
         self._check(t, "learn_memory", "Offer to remember things she notices about me", s.get("learn_memory", True))
         self._check(t, "football_alerts", "Match-day and full-time football alerts", s.get("football_alerts", True))
+        self._check(t, "second_brain", "Keep my second brain up to date (Documents > Moo Brain)",
+                    s.get("second_brain", True))
         self._check(t, "welcome_back", "Welcome me back when I return to the PC, with what I missed",
                     s.get("welcome_back", True))
         self._slider(t, "away_minutes", "Counts as away after (minutes)", 5, 60, s.get("away_minutes", 20), 5,

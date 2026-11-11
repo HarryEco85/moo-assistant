@@ -154,6 +154,17 @@ Everything is saved in **Documents > Moo Drawings**, one file set per revision. 
 Pictures are read with the sharper Sonnet brain automatically (Settings: vision_model), even if you use Haiku day to day.
 
 
+## Second brain
+
+Moo keeps a linked set of notes on your people, clients, sites, jobs, suppliers and how you do things, in **Documents > Moo Brain**. They're plain Markdown, so you can read and edit them, or open the folder in Obsidian (free) to see everything as a linked graph.
+
+- **She files as she goes.** Tell her "Dave Smith's the site manager at Kaizen, key's with the caretaker" and it goes in the right notes, linked together.
+- **Drop anything in the Inbox folder:** saved emails, PDFs, Word docs, a brain-dump in a text file. Within half an hour she reads it, files what matters and moves it to Inbox/Processed. Meeting notes go in automatically.
+- **End of day:** after 6pm she reads back the day's conversations, files anything worth keeping, and writes a short daily note.
+- **Recall:** mention someone or somewhere she has a note on and she already knows the background. Ask "what do we know about Kaizen?" or "how do we do patch lining?" and she searches it.
+
+It stays on your PC. If your Documents folder syncs with OneDrive, both PCs share the same brain.
+
 ## Jarvis mode
 
 - **Carry on talking:** after she answers a spoken question she keeps listening for a few seconds, so you can follow up without saying "Hey Moo" again. Say "thanks" or "that's all" to finish. (Settings > Listening.)

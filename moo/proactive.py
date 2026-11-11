@@ -186,7 +186,7 @@ class Watcher:
                                     ("clashes", self._clash_check), ("vh3", self._vh3_check),
                                     ("waiting", self._waiting), ("wrap", self._wrap),
                                     ("car", self._car_jobs), ("football", self._football),
-                                    ("routines", self._routines)):
+                                    ("routines", self._routines), ("brain", self._second_brain)):
                     try:
                         job()
                     except Exception as e:
@@ -202,6 +202,33 @@ class Watcher:
         for r in self.app.brain.routines.due():
             self._note("routines", f"Running {r['name']}")
             threading.Thread(target=self.app.run_routine, args=(r,), daemon=True, name="routine").start()
+
+    # ---------- second brain upkeep ----------
+    def _second_brain(self):
+        brain = self.app.brain
+        if not self.s.get("second_brain", True) or not brain.vault.ready:
+            return
+        now = time.time()
+        quick = lambda i, d: brain.quick(i, d, 2500)
+        if now - getattr(self, "_vault_inbox_at", 0) > 1800:
+            self._vault_inbox_at = now
+            done = brain.vault.inbox(quick, user_name(self.s), self.s.get("about_you", ""))
+            if done:
+                n = sum(len(c) for _, c in done)
+                self._note("brain", f"Filed {len(done)} inbox item(s), {n} note(s) updated")
+                self.app.ui.add_message("sys", f"Second brain: read {len(done)} item(s) from its Inbox, "
+                                               f"updated {n} note(s).")
+        today = datetime.now().strftime("%Y-%m-%d")
+        if datetime.now().hour >= 18 and self.state.get("brain_digest") != today:
+            self.state["brain_digest"] = today
+            self._save()
+            turns = brain.journal.turns_since(today + " 00:00")
+            if len(turns) >= 2:
+                text = "\n\n".join(f"{ts[11:]} {user_name(self.s)}: {u}\nMoo: {r[:1200]}" for ts, _, u, r in turns)
+                changed = brain.vault.digest("Today's conversations between " + user_name(self.s) +
+                                             " and Moo:\n\n" + text[-24000:], quick, user_name(self.s),
+                                             self.s.get("about_you", ""), source="chat")
+                self._note("brain", f"End of day: {len(changed)} note(s) updated from today's chats")
 
     # ---------- welcome back ----------
     def _presence(self):

@@ -899,6 +899,10 @@ class MooApp:
         except Exception:
             log.exception("Couldn't save the notes")
         self.ui.add_draft(notes, "Meeting notes")
+        try:  # into the second brain's inbox, to be filed under the right people and jobs
+            self.brain.vault.drop(f"Meeting notes {stamp.strftime('%Y-%m-%d %H%M')}", notes)
+        except Exception:
+            pass
         if path:
             self.ui.add_action("Open the notes", lambda p=str(path): __import__("os").startfile(p))
         try:

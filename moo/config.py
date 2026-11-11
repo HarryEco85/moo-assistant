@@ -106,6 +106,7 @@ DEFAULTS = {
     "follow_up": True,  # keep listening after an answer, Jarvis-style
     "follow_up_seconds": 6,
     "welcome_back": True,
+    "second_brain": True,  # keep notes on people, clients, sites and jobs in Documents > Moo Brain
     "away_minutes": 20,
     "ha_url": "",  # Home Assistant, for lights and heating
     "mobile_url": "",  # the phone app's Supabase project

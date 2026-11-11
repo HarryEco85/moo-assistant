@@ -98,6 +98,10 @@ class Journal:
                 out.append(f"- {self._when(ts)}. They said: {user[:300]}\n  You replied: {reply[:500]}")
         return "\n".join(out) if out else "Nothing found in past conversations or decisions for that."
 
+    def turns_since(self, since: str) -> list:
+        with self._lock, self._db() as db:
+            return db.execute("SELECT ts, channel, user, reply FROM turns WHERE ts >= ? ORDER BY ts", (since,)).fetchall()
+
     def recent_decisions(self, n=8) -> list:
         with self._lock, self._db() as db:
             return db.execute("SELECT ts, text FROM decisions ORDER BY rowid DESC LIMIT ?", (n,)).fetchall()

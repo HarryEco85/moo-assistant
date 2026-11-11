@@ -108,6 +108,12 @@ Big jobs (plan, act, check):
 Asking first (the approval queue):
 - If you think something would help but {user} didn't ask for it (drafting a chase, a reply, setting a reminder, messaging their phone, running a skill), don't do it: use request_approval with a short title, a one-line reason and the exact instruction you'd carry out. {user} approves or rejects it on the PC or phone. Messages starting "[Approved" mean {user} has said yes: just do it.
 
+Second brain (your long-term knowledge, Documents > Moo Brain):
+- It holds notes on {user}'s people, clients, sites, projects, suppliers and procedures. Notes on anything they mention are slipped into their message in square brackets: use them naturally, never read them out.
+- Questions about a person, client, site, job, supplier, price agreed or "how do we..." you don't already know: brain_search first, then brain_read if needed, before email or VH3.
+- When you learn something durable about any of those (a new contact and role, a site's access arrangements, a rate agreed, how {user} wants something done, a decision on a job), file it with brain_note straight away, quietly, as short dated lines. Don't announce it unless asked. Keep personal and sensitive details out.
+- "Remember X about the business/a client/a site" goes in the second brain; personal preferences about how you behave go in remember.
+
 Running things, like Jarvis:
 - You can run the PC (pc_control): open apps and websites, volume, music play/pause/skip, timers ("10 minute timer" = timer of 600 seconds), lock the PC, screen off, show the desktop. Just do it and confirm in a few words.
 - News: the news tool for headlines (top, uk, business, technology, kent, sport, football, construction...). Give the three or four that matter to {user}, not a list of eight.
@@ -353,6 +359,20 @@ def _tools():
              "clear_extras": {"type": "boolean"}}}},
         {"name": "rate_card", "description": "Show the repair rate card, or change rates for good (keys: jet, descale, root_cut, patch_100, patch_150, patch_225, reinstate, line_setup, line_m, excavate, post_cctv; or a new key with label/unit/rate).",
          "input_schema": {"type": "object", "properties": {"set": {"type": "object", "description": "{key: rate} or {key: {label, unit, rate}}"}}}},
+        {"name": "brain_search", "description": "Search the second brain (notes on people, clients, sites, projects, suppliers, procedures, daily notes).",
+         "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+        {"name": "brain_read", "description": "Read one note from the second brain in full, with what links to it.",
+         "input_schema": {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}},
+        {"name": "brain_note", "description": "File something in the second brain: adds dated lines to the note (creating it if new). Use [[Title]] to link other notes. replace=true rewrites the note (only when asked).",
+         "input_schema": {"type": "object", "properties": {
+             "title": {"type": "string", "description": "e.g. 'Dave Smith', 'Kaizen Primary School', 'Patch lining procedure'"},
+             "type": {"type": "string", "enum": ["person", "client", "site", "project", "supplier", "procedure", "note"]},
+             "lines": {"type": "array", "items": {"type": "string"}, "description": "Short facts, one per line"},
+             "aliases": {"type": "array", "items": {"type": "string"}}, "replace": {"type": "boolean"},
+             "content": {"type": "string", "description": "Only with replace: the whole new note in Markdown"}},
+             "required": ["title", "type"]}},
+        {"name": "brain_status", "description": "What's in the second brain; digest_now=true reads anything waiting in its Inbox now; open=true opens the folder.",
+         "input_schema": {"type": "object", "properties": {"digest_now": {"type": "boolean"}, "open": {"type": "boolean"}}}},
         {"name": "pc_control", "description": "Run the PC: open an app or website, volume, media keys, timers, lock, screen off, show desktop.",
          "input_schema": {"type": "object", "properties": {
              "action": {"type": "string", "enum": ["open_app", "open_website", "volume", "media", "timer", "list_timers",
@@ -407,7 +427,7 @@ def _tools():
 # Tools that change Moo's own state in order; never run side by side
 SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
               "cancel_reminder", "request_approval", "log_decision", "ban_word", "moo_update", "car_command",
-              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "survey_videos", "survey_quote", "rate_card", "pc_control", "watch_for", "routine", "smart_home", "make_document", "mark_promise_done", "create_email_draft"}
+              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "survey_videos", "survey_quote", "rate_card", "pc_control", "watch_for", "routine", "smart_home", "make_document", "brain_note", "mark_promise_done", "create_email_draft"}
 FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
            (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
            (("vh3_",), "Checking VH3."),
@@ -420,6 +440,7 @@ FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your email
            (("drawing_edit",), "Changing that now."),
            (("survey_quote", "survey_show"), "Pulling the survey up."),
            (("news",), "Checking the headlines."),
+           (("brain_search", "brain_read"), "Let me check my notes."),
            (("read_webpage",), "Reading it now."),
            (("make_document",), "Putting that together."),
            (("look_at_screen",), "Let me have a look."),
@@ -486,6 +507,9 @@ class Brain:
         self.home = Home(settings)
         self.watches = Watches()
         self.routines = Routines()
+        from .vault import Vault
+        self.vault = Vault()
+        self._recalled = {}
         self.on_survey_done = lambda survey, page, drawing, error: None
         self.on_survey_progress = lambda text: None
         self.memory = Memory()
@@ -495,13 +519,29 @@ class Brain:
         self.gmail = Gmail(settings)
         self._client = None
 
-    def quick(self, instructions: str, data: str) -> str:
+    def _recall(self, text) -> str:
+        """Notes on whoever or whatever they just mentioned, once per half hour each."""
+        if not self.settings.get("second_brain", True) or not self.vault.ready or text.startswith("[Survey"):
+            return ""
+        try:
+            got = self.vault.mentioned(text)
+        except Exception:
+            return ""
+        now, keep = time.time(), []
+        for block in got.split("\n") if got else []:
+            key = block.split("]")[0]
+            if now - self._recalled.get(key, 0) > 1800:
+                self._recalled[key] = now
+                keep.append(block)
+        return "\n".join(keep)
+
+    def quick(self, instructions: str, data: str, max_tokens: int = 600) -> str:
         """One cheap, tool-free Claude call for background jobs (email triage etc.)."""
         budget = float(self.settings.get("monthly_budget_usd", 10.0))
         if budget and self.usage.this_month() >= budget:
             return ""
         model = "claude-haiku-5-5"
-        resp = self.client().messages.create(model=model, max_tokens=600, system=instructions,
+        resp = self.client().messages.create(model=model, max_tokens=max_tokens, system=instructions,
                                              messages=[{"role": "user", "content": data or "(nothing)"}])
         self.usage.add(model, resp.usage.input_tokens, resp.usage.output_tokens)
         return " ".join(b.text for b in resp.content if b.type == "text").strip()
@@ -744,6 +784,8 @@ class Brain:
                 return self.journal.search(args.get("query", ""), args.get("days", 90))
             if name.startswith("drawing_"):
                 return self._drawing_tool(name, args)
+            if name.startswith("brain_"):
+                return self._vault_tool(name, args)
             if name in ("pc_control", "news", "read_webpage", "make_document", "smart_home", "watch_for", "routine"):
                 return self._jarvis_tool(name, args)
             if name.startswith("survey_") or name == "rate_card":
@@ -899,6 +941,33 @@ class Brain:
                 f"Design checks: " + ("; ".join(issues) if issues else "nothing flagged.") +
                 f"\nCurrent model: {detail}\nTell them briefly what you drew, the most important check or two, "
                 "and offer next steps with offer_options.")
+
+    def _vault_tool(self, name, args) -> str:
+        v = self.vault
+        if not v.ready:
+            return "The second brain folder isn't available on this PC."
+        if name == "brain_search":
+            return v.search(args.get("query", ""))
+        if name == "brain_read":
+            return v.read(args.get("title", ""))
+        if name == "brain_note":
+            if args.get("replace") and args.get("content"):
+                return v.save(args["title"], args.get("type", "note"), args["content"], args.get("aliases"), replace=True)
+            r = v.add_facts(args["title"], args.get("type", "note"), list(args.get("lines") or [args.get("content", "")]),
+                            args.get("aliases"))
+            return r or "Already in there."
+        if name == "brain_status":
+            if args.get("open") and not self.on_phone:
+                import os
+                os.startfile(str(v.root))
+            out = ""
+            if args.get("digest_now"):
+                self.status("Reading the Inbox")
+                done = v.inbox(lambda i, d: self.quick(i, d, 2500), user_name(self.settings),
+                               self.settings.get("about_you", ""))
+                out = "\n".join(f"- {n}: {', '.join(c) or 'nothing new'}" for n, c in done) or "Inbox was empty."
+            return f"Second brain ({v.root}): {v.overview()}." + (f"\nDigested:\n{out}" if out else "")
+        return "Unknown tool."
 
     def _jarvis_tool(self, name, args) -> str:
         from . import jarvis as J
@@ -1058,6 +1127,9 @@ class Brain:
             "cache_control": {"type": "ephemeral"},
         }]
         stamped = f"[{datetime.now().strftime('%A %d %B %Y, %H:%M')}] {text}"
+        recall = self._recall(text)
+        if recall:
+            stamped = f"[Second brain notes on what they mentioned:\n{recall}]\n{stamped}"
         content = (list(images) + [{"type": "text", "text": stamped}]) if images else stamped
         messages = list(self.history.messages) + [{"role": "user", "content": content}]
         tools = _tools() + self.vh3.claude_tools()

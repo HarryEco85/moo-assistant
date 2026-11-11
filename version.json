@@ -1,4 +1,4 @@
 {
-  "version": "1.24.0",
-  "notes": "Jarvis mode: carry on talking without the wake word, welcome back with what you missed, run the PC (apps, websites, volume, music, lock), timers, 'tell me when' email watches, routines, news, read links, make Word/Excel files, smart home via Home Assistant."
+  "version": "1.25.0",
+  "notes": "Second brain: Moo keeps linked notes on your people, clients, sites, jobs and procedures in Documents > Moo Brain (Obsidian-friendly), files things as you talk, digests anything dropped in its Inbox, writes a daily note and recalls the right notes when you mention them."
 }
