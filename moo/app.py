@@ -38,6 +38,7 @@ TAKE_NOTES = re.compile(r"\b(take|start( taking)?|keep) (some )?(notes|minutes)\
                         r"(meeting|call|conversation)\b", re.I)
 STOP_NOTES = re.compile(r"\b(stop|finish|end|done|wrap up)( taking)?( the)? (notes|minutes|recording)\b|"
                         r"\bthat'?s the end of the (meeting|call)\b|\bstop notes\b", re.I)
+FILLER = re.compile(r"^\W*(so|um+|uh+|erm*|er|ah+|right|okay|ok|well|and|hmm+|yeah|yes|hello|hi)\W*$", re.I)
 APPROVE = re.compile(r"^(approve(d)?( it| that)?|go ahead( with it)?|yes,? (do|go ahead with) (it|that))[.!]?$", re.I)
 REJECT = re.compile(r"^(reject( it| that)?|don'?t do (it|that)|no,? (leave|skip) (it|that))[.!]?$", re.I)
 UPDATE_INSTALL = re.compile(r"\b(install|do|run|get|apply) (the |that )?update\b|\bupdate yourself\b", re.I)
@@ -355,6 +356,14 @@ class MooApp:
                 self.ui.add_message("sys", str(e))
                 return
             text = re.sub(r"^(hey )?(moo|jarvis)[,.!]?\s*", "", text, flags=re.I).strip()
+            # "So...", "Um", "Right": you were still thinking, not finished. Keep listening (once).
+            if FILLER.match(text):
+                try:
+                    more = self.ears.listen(silence=max(1.6, float(self.settings.get("listen_pause", 1.2)) + 0.6))
+                    text = f"{text} {more}".strip() if more else ""
+                except RuntimeError:
+                    text = ""
+                text = "" if FILLER.match(text) else text
             if not text:
                 self.ui.set_state("idle")
                 return
