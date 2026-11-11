@@ -454,7 +454,7 @@ class Watcher:
                             f"{queued} queued for you")
         if drafted:
             self.alert(f"I've drafted {drafted} {'reply' if drafted == 1 else 'replies'} from the FAQ. "
-                       ("It's" if drafted == 1 else "They're") + " in Drafts for you to check and send.", "Front desk", speak=False)
+                       + ("It's" if drafted == 1 else "They're") + " in Drafts for you to check and send.", "Front desk", speak=False)
 
     def _faq_draft(self, p, D):
         brain = self.app.brain
