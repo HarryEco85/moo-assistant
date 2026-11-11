@@ -45,6 +45,7 @@ DEFAULTS = {
     "theme": "Ocean",
     "text_size": "Medium",
     "window_opacity": 100,
+    "header_title": "MOO MY AGENT",  # the name in the top corner (PC and phone app)
     "always_on_top": False,
     # The brain. Haiku is cheapest; switch to "claude-sonnet-5-5" for harder questions.
     "model": "claude-haiku-5-5",

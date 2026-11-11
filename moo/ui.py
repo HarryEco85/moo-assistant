@@ -423,6 +423,8 @@ class MooWindow:
         header.pack(side="top", fill="x", padx=20, pady=(14, 0))
         self.title_label = tk.Label(header, text="", bg=BG, fg=TEXT, font=(FONT, 16, "bold"))
         self.title_label.pack(side="left")
+        self.title_rest = tk.Label(header, text="", bg=BG, fg=MUTED, font=(FONT, 11, "bold"))
+        self.title_rest.pack(side="left", padx=(6, 0), pady=(4, 0))
         self.chip = tk.Label(header, bg=BG, bd=0)
         self.chip.pack(side="left", padx=(12, 0), pady=(3, 0))
         for kind, cmd in (("gear", self.open_settings), ("grid", self.open_office), ("stop", self.app.stop_speaking)):
@@ -757,7 +759,15 @@ class MooWindow:
         s = self.app.settings
         name = s.get("assistant_name", "Moo") or "Moo"
         self.root.title(name)
-        self.title_label.configure(text=name.lower())
+        title = (s.get("header_title") or "").strip()
+        if title:  # e.g. "MOO MY AGENT": first word bold, the rest in her colour
+            first, _, rest = title.partition(" ")
+            self.title_label.configure(text=first)
+            self.title_rest.configure(text=rest, fg=palette(s)["idle"][0])
+            self.root.title(title)
+        else:
+            self.title_label.configure(text=name.lower())
+            self.title_rest.configure(text="")
         big, small = TEXT_SIZES.get(s.get("text_size", "Medium"), TEXT_SIZES["Medium"])
         self.chat.tag_configure("moo", font=(FONT, big))
         self.chat.tag_configure("sys", font=(FONT, max(8, small - 2)))

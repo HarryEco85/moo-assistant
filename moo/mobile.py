@@ -252,6 +252,7 @@ class Mobile:
         except Exception:
             pass
         return {"name": self.s.get("assistant_name", "Moo") or "Moo", "user": user_name(self.s),
+                "title": (self.s.get("header_title") or "").strip(),
                 "next": (stats.get("meetings", {}).get("text") or "").replace("Next: ", "") or "Nothing coming up",
                 "inbox": inbox or "Nothing urgent",
                 "reminder": f"{nxt['due'][11:16]} · {nxt['text']}" if nxt else "None set",

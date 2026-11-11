@@ -26,6 +26,8 @@
 
   header { display: flex; align-items: center; gap: 10px; padding: 14px 16px 6px; }
   .name { font-weight: 700; font-size: 20px; letter-spacing: .2px; text-transform: lowercase; }
+  .name.titled { text-transform: none; font-size: 18px; letter-spacing: .4px; }
+  .name.titled em { font-style: normal; color: var(--a1); font-size: 13px; margin-left: 5px; letter-spacing: .6px; }
   .chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 999px;
     font-size: 12px; font-weight: 600; background: rgba(74,222,128,.14); color: var(--green); }
   .chip i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
@@ -215,6 +217,14 @@
   $("name").textContent = NAME.toLowerCase();
   document.title = NAME;
   $("text").placeholder = `Ask ${NAME} anything`;
+  function showTitle(t) {
+    if (!t) return;
+    const [first, ...rest] = t.split(" ");
+    const nm = $("name");
+    nm.classList.add("titled");
+    nm.innerHTML = first.replace(/[&<>]/g, "") + (rest.length ? `<em>${rest.join(" ").replace(/[&<>]/g, "")}</em>` : "");
+  }
+  showTitle(store.get("title", ""));
 
   async function rpc(fn, params) {
     const r = await fetch(`${cfg.u}/rest/v1/rpc/${fn}`, {
@@ -362,6 +372,7 @@
       const s = await rpc("moo_state_get");
       if (!s || !s.data) return;
       const d = s.data;
+      if (d.title) { showTitle(d.title); store.set("title", d.title); }
       pcFresh = (Date.now() - new Date(s.updated).getTime()) < 120000;
       online(true);
       $("gNext").textContent = d.next || "–";
