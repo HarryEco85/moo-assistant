@@ -154,6 +154,18 @@ Everything is saved in **Documents > Moo Drawings**, one file set per revision. 
 Pictures are read with the sharper Sonnet brain automatically (Settings: vision_model), even if you use Haiku day to day.
 
 
+## Recording Teams meetings
+
+When a Teams (or Zoom, or Google Meet) meeting window opens, Moo quietly offers to record it, with a button and a Windows notification. You can also say "record this Teams call" or "transcribe this meeting" any time.
+
+- **Both sides:** she records your microphone ("you") and whatever the PC plays ("them"), so the other people on the call are captured too. Headset or speakers both work; with speakers she spots and drops the echo of the other side in your mic.
+- **Transcribed as it goes,** in the cloud if you've added the Groq key, otherwise on the PC. The transcript is ready a few seconds after you stop.
+- **She stays quiet while recording.** Replies are shown on screen, not spoken, so nothing goes out over the call.
+- **When it ends** (you say "stop recording", press the button, or close the meeting window): she writes proper minutes (summary, attendees, key points, decisions, actions with owners, open questions) in a Word document with the full transcript. Then she logs your decisions, sets reminders for your actions, offers to draft the follow-up email, and files everything in the second brain.
+- **Everything is saved** in **Documents > Moo Meetings > date and title**: minutes.docx, transcript.txt and meeting.m4a (the audio).
+
+Let people know you're recording; Moo reminds you each time. Teams' own recording and transcription (if your Microsoft 365 plan has it) still works alongside.
+
 ## Front desk: answer what's known, escalate the rest
 
 Customer emails go through a simple decision:

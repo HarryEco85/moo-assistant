@@ -108,6 +108,8 @@ Big jobs (plan, act, check):
 Asking first (the approval queue):
 - If you think something would help but {user} didn't ask for it (drafting a chase, a reply, setting a reminder, messaging their phone, running a skill), don't do it: use request_approval with a short title, a one-line reason and the exact instruction you'd carry out. {user} approves or rejects it on the PC or phone. Messages starting "[Approved" mean {user} has said yes: just do it.
 
+Meetings: "record this Teams call", "transcribe this meeting" uses meeting_recorder start. It records both sides and transcribes as it goes; when they say stop you'll get the minutes to follow up. While recording, keep replies to text on screen (speaking would go out over the call).
+
 Front desk (customer emails: safe execution, not improvisation):
 - Customer emails the FAQ answers get a reply drafted for {user} automatically (in Drafts, never sent). Everything else, and every red flag (complaints, legal, refunds, pricing, injuries...), goes in the review queue with a one-line reason. Never improvise an answer to a customer on facts, prices or promises you haven't been given.
 - "Go through the review queue" (or the morning review): use review_queue, then take them ONE at a time: who, what they want, why it's held, in a sentence or two. Ask {user} for the answer. Then write the reply in {user}'s voice from what they said and save it with review_reply. If the answer would help with future emails (a general how/when/what, not a one-off), also pass it as a generic FAQ question and answer with no customer names, so next time it's handled automatically. Say "sorted, next one" and move on. "Skip" leaves it; "bin it" dismisses it.
@@ -364,6 +366,10 @@ def _tools():
              "clear_extras": {"type": "boolean"}}}},
         {"name": "rate_card", "description": "Show the repair rate card, or change rates for good (keys: jet, descale, root_cut, patch_100, patch_150, patch_225, reinstate, line_setup, line_m, excavate, post_cctv; or a new key with label/unit/rate).",
          "input_schema": {"type": "object", "properties": {"set": {"type": "object", "description": "{key: rate} or {key: {label, unit, rate}}"}}}},
+        {"name": "meeting_recorder", "description": "Record and transcribe a Teams/Zoom/phone-on-speaker meeting on the PC: both sides (their mic and the PC's sound). On stop, writes minutes and the transcript.",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": ["start", "stop", "status"]},
+             "title": {"type": "string", "description": "e.g. 'Kaizen progress meeting'"}}, "required": ["action"]}},
         {"name": "review_queue", "description": "Customer emails held for the user's answer (not in the FAQ, or red-flagged), with the reason each was held.",
          "input_schema": {"type": "object", "properties": {}}},
         {"name": "review_reply", "description": "Close a review-queue item: save the reply (written in the user's voice from their answer) as a draft reply to that email, and optionally add a generic question and answer to the FAQ. Or dismiss it.",
@@ -444,7 +450,7 @@ def _tools():
 # Tools that change Moo's own state in order; never run side by side
 SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
               "cancel_reminder", "request_approval", "log_decision", "ban_word", "moo_update", "car_command",
-              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "survey_videos", "survey_quote", "rate_card", "pc_control", "watch_for", "routine", "smart_home", "make_document", "brain_note", "review_reply", "faq", "mark_promise_done", "create_email_draft"}
+              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "survey_videos", "survey_quote", "rate_card", "pc_control", "watch_for", "routine", "smart_home", "make_document", "brain_note", "review_reply", "faq", "meeting_recorder", "mark_promise_done", "create_email_draft"}
 FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
            (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
            (("vh3_",), "Checking VH3."),
@@ -529,6 +535,7 @@ class Brain:
         self._recalled = {}
         from .desk import ReviewQueue
         self.desk = ReviewQueue()
+        self.on_record = lambda action, title: "Recording isn't available."
         self.on_survey_done = lambda survey, page, drawing, error: None
         self.on_survey_progress = lambda text: None
         self.memory = Memory()
@@ -554,12 +561,12 @@ class Brain:
                 keep.append(block)
         return "\n".join(keep)
 
-    def quick(self, instructions: str, data: str, max_tokens: int = 600) -> str:
+    def quick(self, instructions: str, data: str, max_tokens: int = 600, model: str = None) -> str:
         """One cheap, tool-free Claude call for background jobs (email triage etc.)."""
         budget = float(self.settings.get("monthly_budget_usd", 10.0))
         if budget and self.usage.this_month() >= budget:
             return ""
-        model = "claude-haiku-5-5"
+        model = model or "claude-haiku-5-5"
         resp = self.client().messages.create(model=model, max_tokens=max_tokens, system=instructions,
                                              messages=[{"role": "user", "content": data or "(nothing)"}])
         self.usage.add(model, resp.usage.input_tokens, resp.usage.output_tokens)
@@ -803,6 +810,10 @@ class Brain:
                 return self.journal.search(args.get("query", ""), args.get("days", 90))
             if name.startswith("drawing_"):
                 return self._drawing_tool(name, args)
+            if name == "meeting_recorder":
+                if self.on_phone:
+                    return "Recording happens on the PC where the meeting's running; they'd need to start it there."
+                return self.on_record(args.get("action", "status"), args.get("title", ""))
             if name in ("review_queue", "review_reply", "faq"):
                 return self._desk_tool(name, args)
             if name.startswith("brain_"):

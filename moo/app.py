@@ -39,6 +39,8 @@ TAKE_NOTES = re.compile(r"\b(take|start( taking)?|keep) (some )?(notes|minutes)\
 STOP_NOTES = re.compile(r"\b(stop|finish|end|done|wrap up)( taking)?( the)? (notes|minutes|recording)\b|"
                         r"\bthat'?s the end of the (meeting|call)\b|\bstop notes\b", re.I)
 FILLER = re.compile(r"^\W*(so|um+|uh+|erm*|er|ah+|well|and|hmm+)\W*$", re.I)
+RECORD_MEETING = re.compile(r"\b(record|transcribe)\b.{0,30}\b(teams|zoom|meeting|call)\b", re.I)
+STOP_RECORDING = re.compile(r"\b(stop|end|finish)\b.{0,20}\b(recording|transcri\w*)\b|\bmeeting'?s? (over|finished|done)\b", re.I)
 DISMISS = re.compile(r"^(no|nope|nah|no thanks?|that'?s (all|it|fine|everything)|thanks?( you)?|cheers|ta|nothing|all good|sorted|leave it)[.!, ]*(moo|mate)?[.!]*$", re.I)
 APPROVE = re.compile(r"^(approve(d)?( it| that)?|go ahead( with it)?|yes,? (do|go ahead with) (it|that))[.!]?$", re.I)
 REJECT = re.compile(r"^(reject( it| that)?|don'?t do (it|that)|no,? (leave|skip) (it|that))[.!]?$", re.I)
@@ -66,6 +68,8 @@ class MooApp:
         self.phone = Phone(self)
         from .mobile import Mobile
         self.mobile = Mobile(self)
+        from .recorder import MeetingRecorder
+        self.recorder = MeetingRecorder(self.settings, transcribe_local=self._local_transcribe)
         self.watcher = Watcher(self)
         self.approvals = Approvals()
         self.perf = {"date": "", "replies": 0, "secs": 0.0, "plans": 0}
@@ -161,6 +165,7 @@ class MooApp:
         self.brain.on_options = self.show_options
         self.brain.on_survey_done = self.survey_done
         self.brain.on_alert = self._reminder_due
+        self.brain.on_record = self._record_tool
         self.brain.on_survey_progress = lambda text: self.ui.add_message("sys", text)
 
     def _load_voice(self):
@@ -307,11 +312,15 @@ class MooApp:
     def say(self, text, show=True):
         if show:
             self.ui.add_message("Moo", text)  # (label only; the window shows no names)
-        if self.mouth and self.mouth.voice and self.settings.get("speak_aloud", True):
+        if self.mouth and self.mouth.voice and self.settings.get("speak_aloud", True) and not self._recording():
             self.mouth.say(text, on_start=lambda: self.ui.set_state("speaking"),
                            on_end=lambda: self.ui.set_state("idle"))
         else:
             self.ui.set_state("idle")
+
+    def _recording(self):
+        rec = getattr(self, "recorder", None)
+        return bool(rec and rec.running)
 
     def stop_speaking(self):
         if self.mouth:
@@ -487,6 +496,13 @@ class MooApp:
         if STOP_WORDS.match(text.strip()):
             self.stop_speaking()
             return
+        rec = getattr(self, "recorder", None)
+        if rec and rec.running and (STOP_RECORDING.search(text) or STOP_NOTES.search(text)):
+            self.finish_meeting()
+            return None
+        if RECORD_MEETING.search(text) and not (rec and rec.running) and not re.search(r"\b(how|can you|could you)\b.*\?$", text):
+            self.start_meeting()
+            return None
         if self.ears and self.ears.notes_started and STOP_NOTES.search(text):
             self.finish_notes()
             return None
@@ -530,7 +546,7 @@ class MooApp:
         self.ui.set_state("thinking")
         t0 = time.time()
         timing = {}
-        speaking = self.mouth and self.mouth.voice and self.settings.get("speak_aloud", True)
+        speaking = self.mouth and self.mouth.voice and self.settings.get("speak_aloud", True) and not self._recording()
         sentences = queue.Queue()
         speaker = None
         if speaking:
@@ -905,6 +921,10 @@ class MooApp:
             pass
         if path:
             self.ui.add_action("Open the notes", lambda p=str(path): __import__("os").startfile(p))
+        self._notes_followup(notes, "Documents, Moo Notes")
+
+    def _notes_followup(self, notes, where):
+        who = user_name(self.settings)
         try:
             reply = self.brain.ask(
                 f"[Meeting notes, recorded on the PC. Tidy notes below.] Now: 1) log_decision for each decision "
@@ -912,12 +932,133 @@ class MooApp:
                 "without a time, 9am the next working day. 3) If other people or companies were involved, "
                 "request_approval to draft a follow-up email to them summarising decisions and actions (put the "
                 "summary and who it's for in the instruction). 4) Then tell me in three or four spoken sentences "
-                "what the meeting landed on, what you've set up, and that the full notes are saved in Documents, "
-                f"Moo Notes.\n\n{notes}", channel="notes")
+                "what the meeting landed on, what you've set up, and that the full notes and transcript are saved in "
+                f"{where}.\n\n{notes}", channel="notes")
         except Exception as e:
             log.exception("Notes follow-up failed")
-            reply = f"The notes are saved in Documents, Moo Notes, but I couldn't set up the follow-ups: {str(e)[:120]}"
+            reply = f"The notes are saved in {where}, but I couldn't set up the follow-ups: {str(e)[:120]}"
         self.say(reply)
+
+    # ---------- recording Teams / Zoom meetings ----------
+    def _local_transcribe(self, pcm):
+        ears = self.ears
+        if not (ears and ears.whisper is not None):
+            return ""
+        with ears._wlock:
+            segs, _ = ears.whisper.transcribe(pcm, language="en", beam_size=1, vad_filter=True,
+                                              without_timestamps=True, condition_on_previous_text=False,
+                                              initial_prompt=(self.settings.get("vocabulary") or "").strip() or None)
+            return " ".join(x.text.strip() for x in segs).strip()
+
+    def start_meeting(self, title=""):
+        """Record both sides of the call (your mic and what the PC plays) and transcribe as it goes."""
+        if self.recorder.running:
+            return "I'm already recording."
+        title = title or ""
+        if not title:
+            try:
+                from .recorder import meeting_window
+                w = meeting_window()
+                title = re.split(r"\s*\|\s*", w)[0] if w else ""
+            except Exception:
+                title = ""
+        try:
+            self.recorder.start(title or "Meeting", folder=documents_dir() / "Moo Meetings")
+        except Exception as e:
+            log.exception("Couldn't start the meeting recorder")
+            msg = (f"I can't record the PC's sound here ({str(e)[:80]}), so I'll take notes from your microphone "
+                   "instead; I'll only hear your side.")
+            self.ui.add_message("Moo", msg)
+            self.start_notes()
+            return msg
+        self._rec_auto_window = getattr(self, "_meeting_title_seen", None)
+        self.ui.add_action("Stop recording", lambda: threading.Thread(target=self._meeting_button, daemon=True).start())
+        msg = ("Recording and transcribing both sides. Let everyone know it's being recorded. "
+               "Say stop recording, or press the button, when you're done.")
+        self.ui.add_message("Moo", msg)  # shown, not spoken: it would go out over the call on speakers
+        from .reminders import notify
+        notify("Moo", "Recording this meeting. Let everyone know it's being recorded.")
+        return msg
+
+    def _meeting_button(self):
+        if not self.busy.acquire(timeout=30):
+            return
+        try:
+            self.finish_meeting()
+        finally:
+            self.busy.release()
+
+    def finish_meeting(self):
+        if not self.recorder.running:
+            return "I'm not recording anything."
+        self.ui.set_state("thinking", "Finishing the transcript")
+        res = self.recorder.stop()
+        words = sum(len(x.split()) for _, _, x in res["lines"])
+        if words < 20:
+            err = f" ({res['errors'][0][:80]})" if res.get("errors") else ""
+            self.say(f"I didn't catch enough to write up, I'm afraid{err}. The recording's saved in Documents, "
+                     "Moo Meetings, if you need it.")
+            return "too short"
+        who = user_name(self.settings)
+        mins = int(res["seconds"] // 60)
+        self.ui.set_state("thinking", "Writing up the meeting")
+        try:
+            notes = self.brain.quick(
+                f"Turn this {mins}-minute meeting transcript into proper minutes for {who}. Lines marked {who} are "
+                "them; 'Them' is everyone else on the call: where it's clear from the conversation who's speaking "
+                "(names used, roles), say who. Never invent anything that isn't in the transcript. Headings: "
+                "Summary (3-4 sentences), Attendees (as far as you can tell), Key points, Decisions, "
+                "Actions (who, what, by when), Open questions. Short lines starting with a dash. British English.",
+                res["transcript"][:120000], 3000, model=self.settings.get("vision_model") or "claude-sonnet-5-5")
+        except Exception as e:
+            log.exception("Meeting write-up failed")
+            notes = f"(Couldn't write up the minutes: {str(e)[:120]})"
+        folder = res["folder"]
+        try:
+            (folder / "minutes.txt").write_text(notes, encoding="utf-8")
+            from .jarvis import make_document
+            import shutil
+            md = notes.replace("\r", "")
+            md = re.sub(r"(?m)^(Summary|Attendees|Key points|Decisions|Actions|Open questions)\s*:?\s*$", r"## \1", md)
+            doc = make_document("docx", f"{self.recorder.title} minutes", md + "\n\n## Transcript\n" + res["transcript"])
+            shutil.move(str(doc), str(folder / "minutes.docx"))
+        except Exception:
+            log.exception("Couldn't save the minutes")
+        self.ui.add_draft(notes, f"Minutes · {self.recorder.title} · {mins} min")
+        import os
+        self.ui.add_action("Open the minutes", lambda p=str(folder / "minutes.docx"): os.startfile(p))
+        self.ui.add_action("Open the folder", lambda p=str(folder): os.startfile(p))
+        try:
+            self.brain.vault.drop(f"Meeting {self.recorder.title} {datetime.now():%Y-%m-%d %H%M}", notes)
+        except Exception:
+            pass
+        self._notes_followup(notes, f"Documents, Moo Meetings, {folder.name}")
+        return "done"
+
+    def _record_tool(self, action, title=""):
+        if action == "start":
+            if self.recorder.running:
+                return "Already recording."
+            threading.Thread(target=self.start_meeting, args=(title,), daemon=True).start()
+            return "Recording started (both sides). The user has been reminded to tell people. Reply in a few words."
+        if action == "stop":
+            if not self.recorder.running:
+                return "Not recording."
+            threading.Thread(target=self._meeting_button, daemon=True).start()
+            return "Stopping; the minutes will follow in a moment. Just say you're writing them up."
+        if self.recorder.running:
+            return f"Recording '{self.recorder.title}' for {int((time.time() - self.recorder.started) // 60)} min, {len(self.recorder.lines)} lines so far."
+        return "Not recording."
+
+    def offer_recording(self, title):
+        """A Teams/Zoom meeting window just opened: offer to record it (quietly: they may be in the call)."""
+        short = re.split(r"\s*\|\s*", title)[0][:60]
+        self.ui.add_choice(f"Meeting started: {short}. Record and transcribe it?",
+                           [("Record it", lambda: threading.Thread(target=self.start_meeting, args=(short,),
+                                                                   daemon=True).start()),
+                            ("Not this one", lambda: None)])
+        from .reminders import notify
+        notify("Moo", f"{short}: want me to record and transcribe it? Click Record it in Moo.")
 
     def show_options(self, options):
         """Tappable next steps: buttons in the chat, and chips in the phone app."""

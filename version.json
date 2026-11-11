@@ -1,4 +1,4 @@
 {
-  "version": "1.26.0",
-  "notes": "Front desk: customer emails answered in the FAQ get a reply drafted in your voice; everything else and every red flag waits in a review queue. Morning review takes a sentence each, and your answers grow the FAQ."
+  "version": "1.27.0",
+  "notes": "Record Teams/Zoom meetings: both sides captured and transcribed as it goes, then minutes (Word), transcript and audio saved, with actions, reminders and the follow-up email set up. Moo offers to record when a meeting starts."
 }

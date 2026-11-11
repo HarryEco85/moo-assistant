@@ -106,6 +106,8 @@ DEFAULTS = {
     "follow_up": True,  # keep listening after an answer, Jarvis-style
     "follow_up_seconds": 6,
     "welcome_back": True,
+    "offer_record": True,  # offer to record Teams/Zoom meetings when one starts
+    "auto_stop_record": True,  # stop and write up when the meeting window closes
     "front_desk": True,  # FAQ-answered customer emails drafted, the rest queued for review
     "desk_auto_draft": True,
     "desk_review_time": "08:30",

@@ -518,7 +518,11 @@ class MooWindow:
                 "speaking": "Speaking"}.get(state, state.title())
         ears = getattr(self.app, "ears", None)
         started = getattr(ears, "notes_started", None) if ears else None
-        if started and state in ("idle", "offline"):
+        rec = getattr(self.app, "recorder", None)
+        if rec and rec.running and state in ("idle", "offline"):
+            secs = int(time.time() - rec.started)
+            colour, text = (248, 113, 113), f"Recording  {secs // 60}:{secs % 60:02d}"
+        elif started and state in ("idle", "offline"):
             secs = int(time.time() - started)
             colour, text = (248, 113, 113), f"Taking notes  {secs // 60}:{secs % 60:02d}"
         f = _font("semibold", 8.5)
@@ -734,7 +738,8 @@ class MooWindow:
     def _animate(self):
         t = time.time() - self.t0
         ears = getattr(self.app, "ears", None)
-        notes = bool(ears and getattr(ears, "notes_started", None))
+        notes = bool(ears and getattr(ears, "notes_started", None)) or bool(
+            getattr(self.app, "recorder", None) and self.app.recorder.running)
         if notes or getattr(self, "_chip_notes", False):
             if int(t) != getattr(self, "_chip_tick", -1):
                 self._chip_tick = int(t)

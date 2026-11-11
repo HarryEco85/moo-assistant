@@ -355,6 +355,10 @@ class SettingsWindow:
                     s.get("vh3_alerts", True))
         self._check(t, "learn_memory", "Offer to remember things she notices about me", s.get("learn_memory", True))
         self._check(t, "football_alerts", "Match-day and full-time football alerts", s.get("football_alerts", True))
+        self._check(t, "offer_record", "Offer to record and transcribe Teams/Zoom meetings when one starts",
+                    s.get("offer_record", True))
+        self._check(t, "auto_stop_record", "Stop and write up the minutes when the meeting window closes",
+                    s.get("auto_stop_record", True))
         self._check(t, "front_desk", "Front desk: answer customer emails from my FAQ, hold everything else for me",
                     s.get("front_desk", True))
         self._entry(t, "desk_review_time", "Morning review of held emails at", s.get("desk_review_time", "08:30"))

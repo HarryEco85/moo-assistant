@@ -231,6 +231,26 @@ class Watcher:
                                              self.s.get("about_you", ""), source="chat")
                 self._note("brain", f"End of day: {len(changed)} note(s) updated from today's chats")
 
+    # ---------- Teams / Zoom meetings ----------
+    def _meeting_watch(self):
+        from .recorder import meeting_window
+        title = meeting_window()
+        rec = getattr(self.app, "recorder", None)
+        prev = getattr(self, "_meeting_title", None)
+        self._meeting_title = title
+        self.app._meeting_title_seen = title
+        if title and not prev and rec and not rec.running and self.s.get("offer_record", True):
+            self.app.offer_recording(title)
+        if prev and not title and rec and rec.running and self.s.get("auto_stop_record", True):
+            self._gone_count = getattr(self, "_gone_count", 0) + 1
+            if self._gone_count >= 2:  # window gone for ~30 s: the meeting's over
+                self._gone_count = 0
+                threading.Thread(target=self.app._meeting_button, daemon=True).start()
+            else:
+                self._meeting_title = prev  # check again next time before stopping
+        else:
+            self._gone_count = 0
+
     # ---------- welcome back ----------
     def _presence(self):
         """Notice when you come back to the desk, and tell you what happened while you were away."""
@@ -238,7 +258,14 @@ class Watcher:
         if not WIN:
             return
         self._away, self.away_log, gone_at, last_greet = False, [], 0.0, 0.0
+        tick = 0
         while not self._stop.wait(2):
+            tick += 1
+            if tick % 8 == 0:
+                try:
+                    self._meeting_watch()
+                except Exception:
+                    log.debug("meeting watch failed", exc_info=True)
             try:
                 idle = idle_seconds()
             except Exception:
