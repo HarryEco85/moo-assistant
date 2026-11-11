@@ -355,6 +355,11 @@ class SettingsWindow:
                     s.get("vh3_alerts", True))
         self._check(t, "learn_memory", "Offer to remember things she notices about me", s.get("learn_memory", True))
         self._check(t, "football_alerts", "Match-day and full-time football alerts", s.get("football_alerts", True))
+        self._check(t, "front_desk", "Front desk: answer customer emails from my FAQ, hold everything else for me",
+                    s.get("front_desk", True))
+        self._entry(t, "desk_review_time", "Morning review of held emails at", s.get("desk_review_time", "08:30"))
+        self._entry(t, "review_triggers", "Always hold for me (red flags)", s.get("review_triggers", ""),
+                    note="Blank = complaints, legal, refunds/credits, pricing, insurance, injuries, damage, staff issues.")
         self._check(t, "second_brain", "Keep my second brain up to date (Documents > Moo Brain)",
                     s.get("second_brain", True))
         self._check(t, "welcome_back", "Welcome me back when I return to the PC, with what I missed",

@@ -1,4 +1,4 @@
 {
-  "version": "1.25.0",
-  "notes": "Second brain: Moo keeps linked notes on your people, clients, sites, jobs and procedures in Documents > Moo Brain (Obsidian-friendly), files things as you talk, digests anything dropped in its Inbox, writes a daily note and recalls the right notes when you mention them."
+  "version": "1.26.0",
+  "notes": "Front desk: customer emails answered in the FAQ get a reply drafted in your voice; everything else and every red flag waits in a review queue. Morning review takes a sentence each, and your answers grow the FAQ."
 }

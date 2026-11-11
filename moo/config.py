@@ -106,6 +106,10 @@ DEFAULTS = {
     "follow_up": True,  # keep listening after an answer, Jarvis-style
     "follow_up_seconds": 6,
     "welcome_back": True,
+    "front_desk": True,  # FAQ-answered customer emails drafted, the rest queued for review
+    "desk_auto_draft": True,
+    "desk_review_time": "08:30",
+    "review_triggers": "",  # blank = the built-in red flags
     "second_brain": True,  # keep notes on people, clients, sites and jobs in Documents > Moo Brain
     "away_minutes": 20,
     "ha_url": "",  # Home Assistant, for lights and heating

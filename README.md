@@ -154,6 +154,17 @@ Everything is saved in **Documents > Moo Drawings**, one file set per revision. 
 Pictures are read with the sharper Sonnet brain automatically (Settings: vision_model), even if you use Haiku day to day.
 
 
+## Front desk: answer what's known, escalate the rest
+
+Customer emails go through a simple decision:
+
+1. **Is it answered in the FAQ, with no red flag?** If so, Moo drafts the reply in your voice using only the FAQ answer. It goes into Drafts for you to check and send; nothing is ever sent on its own.
+2. **Not in the FAQ, or a red flag** (complaint, legal, refund or credit, pricing, insurance, injury, damage, staff): nothing goes back to the customer. It joins the **review queue** with a one-line reason. Angry, legal and injury emails are flagged to you straight away.
+3. **Morning review (8:30):** Moo tells you what's waiting. Say "go through the review queue" and she takes you through them one at a time. You give the answer in a sentence, she writes the reply in your voice and saves it to Drafts.
+4. **It learns:** if your answer would help with future emails, it's added to the FAQ (without any customer names), so next time she drafts it for you.
+
+The FAQ is **Documents > Moo Brain > FAQ.md**. Read it, edit it, or say "add to the FAQ: ...". Ask "how's the desk doing?" for the numbers. Change the red flags and the review time in Settings > Proactive.
+
 ## Second brain
 
 Moo keeps a linked set of notes on your people, clients, sites, jobs, suppliers and how you do things, in **Documents > Moo Brain**. They're plain Markdown, so you can read and edit them, or open the folder in Obsidian (free) to see everything as a linked graph.

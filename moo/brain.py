@@ -108,6 +108,11 @@ Big jobs (plan, act, check):
 Asking first (the approval queue):
 - If you think something would help but {user} didn't ask for it (drafting a chase, a reply, setting a reminder, messaging their phone, running a skill), don't do it: use request_approval with a short title, a one-line reason and the exact instruction you'd carry out. {user} approves or rejects it on the PC or phone. Messages starting "[Approved" mean {user} has said yes: just do it.
 
+Front desk (customer emails: safe execution, not improvisation):
+- Customer emails the FAQ answers get a reply drafted for {user} automatically (in Drafts, never sent). Everything else, and every red flag (complaints, legal, refunds, pricing, injuries...), goes in the review queue with a one-line reason. Never improvise an answer to a customer on facts, prices or promises you haven't been given.
+- "Go through the review queue" (or the morning review): use review_queue, then take them ONE at a time: who, what they want, why it's held, in a sentence or two. Ask {user} for the answer. Then write the reply in {user}'s voice from what they said and save it with review_reply. If the answer would help with future emails (a general how/when/what, not a one-off), also pass it as a generic FAQ question and answer with no customer names, so next time it's handled automatically. Say "sorted, next one" and move on. "Skip" leaves it; "bin it" dismisses it.
+- "Add to the FAQ: ..." or "the answer to X is Y": faq add. "How's the desk doing?": faq stats.
+
 Second brain (your long-term knowledge, Documents > Moo Brain):
 - It holds notes on {user}'s people, clients, sites, projects, suppliers and procedures. Notes on anything they mention are slipped into their message in square brackets: use them naturally, never read them out.
 - Questions about a person, client, site, job, supplier, price agreed or "how do we..." you don't already know: brain_search first, then brain_read if needed, before email or VH3.
@@ -359,6 +364,18 @@ def _tools():
              "clear_extras": {"type": "boolean"}}}},
         {"name": "rate_card", "description": "Show the repair rate card, or change rates for good (keys: jet, descale, root_cut, patch_100, patch_150, patch_225, reinstate, line_setup, line_m, excavate, post_cctv; or a new key with label/unit/rate).",
          "input_schema": {"type": "object", "properties": {"set": {"type": "object", "description": "{key: rate} or {key: {label, unit, rate}}"}}}},
+        {"name": "review_queue", "description": "Customer emails held for the user's answer (not in the FAQ, or red-flagged), with the reason each was held.",
+         "input_schema": {"type": "object", "properties": {}}},
+        {"name": "review_reply", "description": "Close a review-queue item: save the reply (written in the user's voice from their answer) as a draft reply to that email, and optionally add a generic question and answer to the FAQ. Or dismiss it.",
+         "input_schema": {"type": "object", "properties": {
+             "id": {"type": "string"}, "reply_body": {"type": "string", "description": "Full email body including sign-off"},
+             "faq_question": {"type": "string", "description": "Generic, no names, e.g. 'Do you do CCTV drain surveys at weekends?'"},
+             "faq_answer": {"type": "string"}, "dismiss": {"type": "boolean"}},
+             "required": ["id"]}},
+        {"name": "faq", "description": "The verified FAQ the front desk answers customers from: list, add/update, remove, or stats (how the desk is doing).",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": ["list", "add", "remove", "stats"]},
+             "question": {"type": "string"}, "answer": {"type": "string"}}, "required": ["action"]}},
         {"name": "brain_search", "description": "Search the second brain (notes on people, clients, sites, projects, suppliers, procedures, daily notes).",
          "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
         {"name": "brain_read", "description": "Read one note from the second brain in full, with what links to it.",
@@ -427,7 +444,7 @@ def _tools():
 # Tools that change Moo's own state in order; never run side by side
 SEQUENTIAL = {"make_plan", "update_plan", "finish_plan", "remember", "forget", "save_skill", "set_reminder",
               "cancel_reminder", "request_approval", "log_decision", "ban_word", "moo_update", "car_command",
-              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "survey_videos", "survey_quote", "rate_card", "pc_control", "watch_for", "routine", "smart_home", "make_document", "brain_note", "mark_promise_done", "create_email_draft"}
+              "car_schedule", "set_favourite_team", "set_home", "drawing_create", "drawing_edit", "offer_options", "survey_videos", "survey_quote", "rate_card", "pc_control", "watch_for", "routine", "smart_home", "make_document", "brain_note", "review_reply", "faq", "mark_promise_done", "create_email_draft"}
 FILLERS = [(("list_emails", "search_emails", "read_email"), "Checking your emails."),
            (("get_calendar", "check_diary_clashes"), "Looking at your diary."),
            (("vh3_",), "Checking VH3."),
@@ -510,6 +527,8 @@ class Brain:
         from .vault import Vault
         self.vault = Vault()
         self._recalled = {}
+        from .desk import ReviewQueue
+        self.desk = ReviewQueue()
         self.on_survey_done = lambda survey, page, drawing, error: None
         self.on_survey_progress = lambda text: None
         self.memory = Memory()
@@ -784,6 +803,8 @@ class Brain:
                 return self.journal.search(args.get("query", ""), args.get("days", 90))
             if name.startswith("drawing_"):
                 return self._drawing_tool(name, args)
+            if name in ("review_queue", "review_reply", "faq"):
+                return self._desk_tool(name, args)
             if name.startswith("brain_"):
                 return self._vault_tool(name, args)
             if name in ("pc_control", "news", "read_webpage", "make_document", "smart_home", "watch_for", "routine"):
@@ -941,6 +962,41 @@ class Brain:
                 f"Design checks: " + ("; ".join(issues) if issues else "nothing flagged.") +
                 f"\nCurrent model: {detail}\nTell them briefly what you drew, the most important check or two, "
                 "and offer next steps with offer_options.")
+
+    def _desk_tool(self, name, args) -> str:
+        from . import desk as D
+        if name == "faq":
+            a = args.get("action", "list")
+            if a == "add":
+                r = D.faq_add(args.get("question", ""), args.get("answer", ""))
+                D.log_event("faq_added", q=args.get("question", ""))
+                return r
+            if a == "remove":
+                return D.faq_remove(args.get("question", ""))
+            if a == "stats":
+                return D.stats() + f" {len(self.desk.waiting())} waiting in the review queue."
+            e = D.faq_entries()
+            return "\n".join(f"- {q} -> {a_[:160]}" for q, a_ in e) or "The FAQ is empty. Answers get added as you clear the review queue."
+        if name == "review_queue":
+            return self.desk.text() + "\nRead each email (read_email with its email id) before discussing it."
+        item = self.desk.get(args.get("id", ""))
+        if not item:
+            return "No review item with that id. " + self.desk.text()
+        if args.get("dismiss"):
+            self.desk.close(item["id"], "dismissed")
+            return "Dismissed."
+        out = []
+        if args.get("reply_body"):
+            box = self.gmail if item["email_id"].startswith("gm:") else self.outlook
+            out.append(box.create_draft("", "", args["reply_body"], "", item["email_id"]))
+            self.show_draft(args["reply_body"], f"Reply to {item['from']} · in Drafts")
+        if args.get("faq_question") and args.get("faq_answer"):
+            out.append(D.faq_add(args["faq_question"], args["faq_answer"]))
+            D.log_event("faq_added", q=args["faq_question"])
+        self.desk.close(item["id"])
+        D.log_event("answered", subject=item["subject"])
+        left = len(self.desk.waiting())
+        return " ".join(out) + f" {left} left in the queue."
 
     def _vault_tool(self, name, args) -> str:
         v = self.vault

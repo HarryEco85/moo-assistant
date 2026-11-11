@@ -150,7 +150,7 @@ class Watcher:
     # ---------- delivery ----------
     def alert(self, text, title="Moo", speak=True, urgent=False):
         worker = {"New email": "email", "Coming up": "meetings", "Promise due": "promises", "Diary clash": "clashes",
-                  "VH3 check": "vh3", "Waiting on you": "waiting", "End of day": "wrap", "Watch": "email",
+                  "VH3 check": "vh3", "Waiting on you": "waiting", "End of day": "wrap", "Watch": "email", "Front desk": "email",
                   "Routine": "routines"}.get(title)
         if worker:
             self._note(worker, alert=text[:160])
@@ -186,7 +186,8 @@ class Watcher:
                                     ("clashes", self._clash_check), ("vh3", self._vh3_check),
                                     ("waiting", self._waiting), ("wrap", self._wrap),
                                     ("car", self._car_jobs), ("football", self._football),
-                                    ("routines", self._routines), ("brain", self._second_brain)):
+                                    ("routines", self._routines), ("brain", self._second_brain),
+                                    ("email", self._desk_review)):
                     try:
                         job()
                     except Exception as e:
@@ -384,6 +385,9 @@ class Watcher:
         for w, text in self.app.brain.watches.check(new):
             first = text.strip().split("\n")[0][:160]
             self.alert(f"The one you asked me to watch for: {w['what']}. {first}", "Watch", urgent=True)
+        if self.s.get("front_desk", True):
+            self._desk(new, fetched)
+            return
         vips = self.s.get("vip_senders", "")
         prompt = (f"You triage email for {user_name(self.s)}. {self.s.get('about_you', '')}\n"
                   f"VIPs (always important): {vips or 'none'}\n"
@@ -405,6 +409,98 @@ class Watcher:
                          f"Read email id {p.get('id')} and save a short draft reply to it as {user_name(self.s)} "
                          "(create_email_draft with reply_to_message_id). Leave [brackets] for anything you don't know.",
                          "email", f"reply:{p.get('id')}")
+
+    # ---------- the front desk: FAQ answers, escalations, learning ----------
+    def _desk(self, new, fetched):
+        from . import desk as D
+        brain = self.app.brain
+        who = user_name(self.s)
+        faq = D.faq_text().strip() or "(empty so far: nothing can be answered from it yet)"
+        prompt = D.TRIAGE.format(user=who, about=self.s.get("about_you", "")[:800], faq=faq[:9000],
+                                 triggers=self.s.get("review_triggers") or D.DEFAULT_TRIGGERS,
+                                 vips=self.s.get("vip_senders", "") or "none")
+        reply = brain.quick(prompt, "\n\n".join(t for _, t in new)[:14000], 1500)
+        try:
+            picks = json.loads(re.search(r"\[.*\]", reply, re.S).group(0))
+        except Exception:
+            picks = []
+        ids = {i for i, _ in new}
+        picks = [p for p in picks if isinstance(p, dict) and p.get("id") in ids][:8]
+        drafted, queued = 0, 0
+        for p in picks:
+            route = p.get("route")
+            if route == "faq" and self.s.get("desk_auto_draft", True):
+                if self._faq_draft(p, D):
+                    drafted += 1
+                    continue
+                route, p["reason"] = "review", "the FAQ didn't fully cover it"
+            if route == "review":
+                item = brain.desk.add(p["id"], p.get("from", "?"), p.get("subject", ""), p.get("gist", ""),
+                                      p.get("reason", "not in the FAQ"), bool(p.get("red_flag")))
+                if item:
+                    queued += 1
+                    if item["red_flag"] and re.search(r"angry|complain|legal|solicitor|injur|accident|claim|urgent",
+                                                      item["reason"], re.I):
+                        self.alert(f"Red flag from {item['from']}: {item['gist']}. {item['reason']}. Nothing's gone "
+                                   "back to them; it's in your review queue.", "Front desk", urgent=True)
+                continue
+            if route == "you" and p.get("alert"):
+                self.alert(str(p["alert"])[:300], "New email")
+                self.suggest(f"Draft a reply: {str(p['alert'])[:90]}", "Flagged as needing you",
+                             f"Read email id {p.get('id')} and save a short draft reply to it as {who} "
+                             "(create_email_draft with reply_to_message_id). Leave [brackets] for anything you don't know.",
+                             "email", f"reply:{p.get('id')}")
+        self._note("email", f"Checked {len(fetched)} recent emails, {len(new)} new: {drafted} answered from the FAQ, "
+                            f"{queued} queued for you")
+        if drafted:
+            self.alert(f"I've drafted {drafted} {'reply' if drafted == 1 else 'replies'} from the FAQ. "
+                       ("It's" if drafted == 1 else "They're") + " in Drafts for you to check and send.", "Front desk", speak=False)
+
+    def _faq_draft(self, p, D):
+        brain = self.app.brain
+        q = p.get("faq_q", "")
+        entry = next(((fq, fa) for fq, fa in D.faq_entries() if fq.lower().rstrip("?") == q.lower().rstrip("?")), None) \
+            or next(((fq, fa) for fq, fa in D.faq_entries() if q and q.lower()[:40] in fq.lower()), None)
+        if not entry:
+            return False
+        box = brain.gmail if str(p["id"]).startswith("gm:") else brain.outlook
+        try:
+            original = box.read_email(p["id"])
+        except Exception as e:
+            log.info("Desk couldn't read %s: %s", p["id"], e)
+            return False
+        signoff = (self.s.get("email_signoff") or "Kind regards,\n" + (self.s.get("user_name") or "")).strip()
+        body = brain.quick(D.DRAFT.format(user=user_name(self.s), signoff=signoff, q=entry[0], a=entry[1]),
+                           original[:8000], 900).strip()
+        if not body or body.upper().startswith("NO") and len(body) < 6:
+            return False
+        try:
+            box.create_draft("", "", body, "", p["id"])
+        except Exception as e:
+            log.info("Desk draft failed: %s", e)
+            return False
+        D.log_event("faq_draft", subject=p.get("subject", ""), faq=entry[0])
+        try:
+            brain.vault.daily(f"Front desk drafted a reply to {p.get('from', '?')} ({p.get('subject', '')}) from the FAQ")
+        except Exception:
+            pass
+        return True
+
+    def _desk_review(self):
+        """Morning review: tell you what's waiting for your answer."""
+        if not self.s.get("front_desk", True):
+            return
+        waiting = self.app.brain.desk.waiting()
+        if not waiting or not self._due("desk_review", self.s.get("desk_review_time", "08:30"), (8, 30)):
+            return
+        flags = sum(1 for i in waiting if i["red_flag"])
+        self.alert(f"Morning review: {len(waiting)} customer email{'s' if len(waiting) != 1 else ''} waiting for your "
+                   f"answer{f', {flags} red-flagged' if flags else ''}. Say 'go through the review queue' and I'll "
+                   "take you through them; it takes a sentence each.", "Front desk")
+        try:
+            self.app.show_options(["Go through the review queue", "Later"])
+        except Exception:
+            pass
 
     # ---------- daily nudges ----------
     def _due(self, name, hhmm, default):
