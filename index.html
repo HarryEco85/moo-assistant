@@ -97,6 +97,8 @@
   .msg.draft small { display: flex; justify-content: space-between; font-weight: 700; color: var(--faint); font-size: 11px;
     letter-spacing: .5px; text-transform: uppercase; margin-bottom: 4px; }
   .msg img { max-width: 100%; border-radius: 12px; display: block; }
+  .msg.opts { align-self: stretch; max-width: none; display: flex; flex-wrap: wrap; gap: 8px; }
+  .msg.opts .pill { border: 1px solid color-mix(in srgb, var(--a1) 45%, transparent); color: var(--ink); }
   .typing span { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: var(--muted);
     animation: dot 1.2s infinite; }
   .typing span:nth-child(2) { animation-delay: .15s; } .typing span:nth-child(3) { animation-delay: .3s; }
@@ -190,7 +192,7 @@
     <div class="row"><span>Speak replies out loud</span><button class="toggle on" id="tVoice"></button></div>
     <div class="row"><span>Auto-send when I stop talking</span><button class="toggle on" id="tAuto"></button></div>
     <div class="row"><span>Unpair this phone</span><button class="pill" id="unpair">Unpair</button></div>
-    <div class="row"><span style="color:var(--faint);font-size:13px" id="appver">App version 1.3 · PC: checking…</span></div>
+    <div class="row"><span style="color:var(--faint);font-size:13px" id="appver">App version 1.4 · PC: checking…</span></div>
     <div class="row"><span style="color:var(--faint);font-size:13px">To install: browser menu ⋮ → Add to Home screen</span><button class="pill" id="closeSheet">Done</button></div>
   </div>
 
@@ -345,6 +347,15 @@
       el.querySelector(".copy").onclick = (e) => { navigator.clipboard && navigator.clipboard.writeText(m.body); e.target.textContent = "Copied"; };
     } else if (m.kind === "image" && m.audio) {
       add("moo", `<img alt="" src="data:${m.audio_mime || "image/png"};base64,${m.audio}">`);
+    } else if (m.kind === "options" && m.meta && m.meta.options) {
+      chat.querySelectorAll(".msg.opts").forEach((e) => e.remove());   // only the latest suggestions
+      const el = add("opts", "");
+      m.meta.options.forEach((o) => {
+        const b = document.createElement("button");
+        b.className = "pill"; b.textContent = o;
+        b.onclick = () => { el.remove(); ask(o); };
+        el.appendChild(b);
+      });
     } else if (m.kind === "approval") {
       refreshState();
     }
@@ -375,7 +386,7 @@
       const s = await rpc("moo_state_get");
       if (!s || !s.data) return;
       const d = s.data;
-      $("appver").textContent = `App version 1.3 · PC: ${d.version ? "Moo " + d.version : "needs updating"}` +
+      $("appver").textContent = `App version 1.4 · PC: ${d.version ? "Moo " + d.version : "needs updating"}` +
         (d.pc_name ? ` (${d.pc_name})` : "");
       if (d.title) { showTitle(d.title); store.set("title", d.title); }
       pcFresh = (Date.now() - new Date(s.updated).getTime()) < 120000;
