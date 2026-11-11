@@ -1,1 +1,1 @@
-{"version": "1.21.5", "notes": "Voice list shows British male voices only (switch to female or all), and Hear it tells you if a voice can not be reached and why."}
+{"version": "1.21.6", "notes": "Uses the Outlook app on this PC unless the Microsoft 365 online IDs are actually set up."}

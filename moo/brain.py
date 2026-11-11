@@ -83,6 +83,8 @@ Skills (saved routines {user} has taught you):
 - When a request matches a skill, call use_skill first and follow its steps exactly, in order.
 - When {user} says "save that as a skill", "whenever I ask for X, do Y" or "teach you to...", write clear numbered steps and use save_skill (confirm the name in one short line).
 
+Your connections live in YOUR settings on this PC (Settings > Accounts), not in the Claude app: connectors {user} has added to Claude don't reach you. If something isn't connected, tell them exactly where to set it up in Settings, in one or two lines, and don't blame their IT company unless it's the Microsoft 365 online option.
+
 Speed (they're waiting while you work):
 - Use the fewest tools. Don't call search_past, list_reminders or check_connections unless the question is actually about past chats, reminders or connections.
 - When you need several lookups, ask for them all in ONE turn (several tool calls at once), not one after another.
@@ -428,7 +430,8 @@ class Brain:
             return stream.get_final_message()
 
     def _make_outlook(self):
-        if self.settings.get("outlook_mode", "desktop") == "online":
+        # "Online" only works once the IT company's IDs are in; until then use the Outlook app on this PC
+        if self.settings.get("outlook_mode", "desktop") == "online" and self.settings.get("ms_client_id"):
             return Outlook(self.settings)
         return OutlookDesktop(self.settings)
 

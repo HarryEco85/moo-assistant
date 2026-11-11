@@ -597,7 +597,7 @@ class MooApp:
     def connections_report(self) -> str:
         from .config import get_secret
         s, lines = self.settings, []
-        if s.get("outlook_mode", "desktop") == "online":
+        if s.get("outlook_mode", "desktop") == "online" and s.get("ms_client_id"):
             lines.append("Outlook: Microsoft 365 online " + ("(IDs entered)" if s.get("ms_client_id") else "(not set up: needs IT company IDs)"))
         else:
             try:

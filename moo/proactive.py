@@ -115,7 +115,7 @@ class Watcher:
     # ---------- control ----------
     def start(self):
         threading.Thread(target=self._loop, daemon=True, name="proactive").start()
-        if self.s.get("outlook_mode", "desktop") == "desktop":
+        if self.s.get("outlook_mode", "desktop") == "desktop" or not self.s.get("ms_client_id"):
             try:
                 from .outlook_desktop import watch_new_mail
                 watch_new_mail(self.email_now, self._stop)
