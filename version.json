@@ -1,4 +1,4 @@
 {
-  "version": "1.28.0",
-  "notes": "Spotify: play anything, your playlists and liked songs, skip, volume, shuffle, queue, what's playing, and move the music to your phone, car or speakers. Connect in Settings > Accounts."
+  "version": "1.28.1",
+  "notes": "Fix: \"Hello Moo\" / \"Hi Moo\" / \"Hey Moo\" wake her reliably again, while ordinary chatter still doesn't."
 }

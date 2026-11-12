@@ -491,7 +491,9 @@ class Mouth:
                 on_end()
 
 
-_WAKE = re.compile(r"^\W*(hey|hello|hallo|hullo|hiya|hi)\W+(moo+|mooh|mu|moe|mo)\b\W*(.*)$", re.I)
+_WAKE = re.compile(r"^\W*(hey|hay|hello|hallo|hullo|helo|hiya|hi|high)\W+"
+                   r"(moo+|mooh|mu+|moe|mo|moon|mew|more|moore|mood|mooed|mou|mohr)\b\W*(.*)$", re.I)
+_GREET = re.compile(r"^\W*(hey|hay|hello|hallo|hullo|helo|hiya|hi|high)\b", re.I)
 
 
 def match_wake(text, name="Moo"):
@@ -507,7 +509,7 @@ def match_wake(text, name="Moo"):
     return m.group(3).strip()
 
 
-def cloud_transcribe(pcm, settings) -> str:
+def cloud_transcribe(pcm, settings, prompt=None) -> str:
     """Optional: Groq's hosted Whisper (large-v3-turbo). Much faster and more accurate than a laptop
     processor, free tier is plenty for one person. Returns None if not set up or it fails."""
     from .config import get_secret
@@ -525,7 +527,7 @@ def cloud_transcribe(pcm, settings) -> str:
             w.setframerate(16000)
             w.writeframes((np.clip(pcm, -1, 1) * 32767).astype(np.int16).tobytes())
         data = {"model": "whisper-large-v3-turbo", "language": "en", "temperature": "0", "response_format": "json"}
-        vocab = (settings.get("vocabulary") or "").strip()
+        vocab = prompt or (settings.get("vocabulary") or "").strip()
         if vocab:
             data["prompt"] = vocab[:600]  # the prompt is capped at 224 tokens
         r = requests.post("https://api.groq.com/openai/v1/audio/transcriptions", timeout=12,
@@ -765,7 +767,7 @@ class Ears:
             try:
                 pcm = audio.astype(np.float32) / 32768.0
                 segs, _ = self.tiny.transcribe(pcm, language="en", beam_size=1, without_timestamps=True,
-                                               condition_on_previous_text=False)
+                                               initial_prompt="Hello Moo.", condition_on_previous_text=False)
                 text = " ".join(s.text.strip() for s in segs).strip()
             except Exception as e:
                 log.warning("Hey Moo check failed: %s", e)
@@ -775,13 +777,15 @@ class Ears:
             if hit is None or time.time() - self._last_wake < 2 or self.mode not in ("wake", "notes"):
                 continue
             # double-check with the better ears before waking (cuts out false alarms from office chatter)
-            sure = cloud_transcribe(pcm, self.settings)
+            sure = cloud_transcribe(pcm, self.settings, prompt="Hello Moo. Hey Moo.")
             if sure is not None:
                 checked = match_wake(sure, name)
-                if checked is None:
+                if checked is not None:
+                    hit = checked
+                elif not _GREET.match(sure):  # the better ears didn't even hear a hello: chatter
                     log.info("Wake phrase not confirmed (%r vs %r)", text[:60], sure[:60])
                     continue
-                hit = checked
+            log.info("Wake check: tiny %r, cloud %r", text[:60], (sure or "")[:60])
             self._last_wake = time.time()
             log.info("Heard the wake phrase: %r", text[:80])
             self.on_wake(hit or None)
