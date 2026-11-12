@@ -262,6 +262,8 @@ class SettingsWindow:
         t, s = self.tab_look, self.s
         self._combo(t, "theme", "Colour theme", [(n, n) for n in THEMES], s.get("theme", "Ocean"),
                     note="Changes the orb, mic button and highlights.")
+        self._combo(t, "orb_style", "Her look", ["Jarvis", "Sphere"], s.get("orb_style", "Jarvis"),
+                    note="Jarvis: glowing core and rotating rings. Sphere: the original ball.")
         self._entry(t, "header_title", "Name in the top corner", s.get("header_title", ""),
                     note="Shown on the PC and in the phone app. Leave empty to just show her name.")
         self._combo(t, "text_size", "Text size", [(n, n) for n in TEXT_SIZES], s.get("text_size", "Medium"))

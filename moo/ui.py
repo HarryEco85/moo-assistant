@@ -90,6 +90,165 @@ class Orb:
         return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB")
 
 
+class HudOrb:
+    """Jarvis-style display: a glowing core inside rotating rings, tick marks and arcs that react to her
+    state and her voice. Drawn at twice the size each frame, then smoothed down."""
+
+    def __init__(self, size, side=0):
+        self.size = size
+        self.side = side  # width of the readout panels either side (0 = orb only)
+        self.info = {}
+        self.W = size * 2
+        c = (self.W - 1) / 2
+        h = (size - 1) / 2  # the soft glow is worked out at normal size (it's smooth), lines at double
+        y, x = np.mgrid[0:size, 0:size].astype(np.float32)
+        d = np.sqrt((x - h) ** 2 + (y - h) ** 2) / (size / 2)  # 0 at centre, 1 at the edge
+        self.glow_mask = (np.exp(-np.clip(d - 0.16, 0, None) / 0.22) * 0.55)[..., None]
+        self.core_mask = np.clip(1 - d / 0.17, 0, 1)[..., None] ** 1.6
+        self.bg = _rgb(BG)
+        self.col_a = _rgb(OFFLINE[0])
+        self.col_b = _rgb(OFFLINE[1])
+        self.level = 0.0
+        self.c = c
+        self.rng = np.random.default_rng(3).random(96) * 6.28
+
+    def _arc(self, d, r, start, extent, col, w):
+        c = self.c
+        d.arc([c - r, c - r, c + r, c + r], start, start + extent, fill=col, width=max(1, int(w)))
+
+    def render(self, state, t, voice_level, pal):
+        a_hex, b_hex = OFFLINE if state == "offline" else pal.get(state, pal["idle"])
+        self.col_a += (_rgb(a_hex) - self.col_a) * 0.12
+        self.col_b += (_rgb(b_hex) - self.col_b) * 0.12
+        self.level += (voice_level - self.level) * 0.35
+        A, B = self.col_a, self.col_b
+        W, c = self.W, self.c
+        R = W / 2
+
+        pulse = {"listening": 0.5 + 0.5 * math.sin(t * 5), "speaking": self.level,
+                 "thinking": 0.5 + 0.5 * math.sin(t * 9)}.get(state, 0.5 + 0.5 * math.sin(t * 1.3))
+        glow_k = {"listening": 1.25, "speaking": 1.0 + 0.6 * self.level, "thinking": 1.1}.get(state, 0.85)
+        glow_col = (A * 0.6 + B * 0.4)
+        img = self.bg + (glow_col - self.bg) * np.clip(self.glow_mask * glow_k * (0.85 + 0.15 * pulse), 0, 1)
+        core_col = np.minimum(255, B * 0.5 + 255 * 0.5)
+        core_k = 0.75 + 0.25 * pulse
+        img = img + (core_col - img) * np.clip(self.core_mask * core_k * 1.4, 0, 1)
+        base = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), "RGB").resize((W, W), Image.BILINEAR)
+        d = ImageDraw.Draw(base, "RGBA")
+
+        def col(colour, alpha):
+            return (int(colour[0]), int(colour[1]), int(colour[2]), int(alpha))
+        speed = {"thinking": 3.0, "listening": 1.6, "speaking": 1.2}.get(state, 0.5)
+        deg = t * 20 * speed
+
+        # core rim
+        r_core = R * (0.19 + 0.012 * pulse)
+        self._arc(d, r_core, 0, 360, col(B, 230), R * 0.012)
+        # inner segmented ring (8 segments) turning clockwise
+        r1 = R * 0.30
+        for i in range(8):
+            self._arc(d, r1, deg + i * 45 + 4, 37, col(A, 200), R * 0.03)
+        # thin full ring
+        self._arc(d, R * 0.36, 0, 360, col(B, 90), R * 0.006)
+        # tick ring turning the other way
+        r_t = R * 0.44
+        for i in range(72):
+            ang = math.radians(-deg * 0.6 + i * 5)
+            long = i % 6 == 0
+            r_in = r_t - (R * 0.05 if long else R * 0.025)
+            d.line([(c + math.cos(ang) * r_in, c + math.sin(ang) * r_in),
+                    (c + math.cos(ang) * r_t, c + math.sin(ang) * r_t)],
+                   fill=col(B if long else A, 220 if long else 120), width=max(1, int(R * (0.01 if long else 0.006))))
+        # the big arcs, like the reactor
+        r3 = R * 0.53
+        self._arc(d, r3, deg * 1.4, 115, col(A, 235), R * 0.035)
+        self._arc(d, r3, deg * 1.4 + 180, 60, col(B, 235), R * 0.035)
+        self._arc(d, r3 + R * 0.05, -deg * 0.8 + 30, 40, col(B, 160), R * 0.012)
+        self._arc(d, r3 + R * 0.05, -deg * 0.8 + 210, 90, col(A, 120), R * 0.012)
+        # thinking: a fast scanning sweep
+        if state == "thinking":
+            self._arc(d, R * 0.66, t * 300 % 360, 50, col(B, 220), R * 0.02)
+            self._arc(d, R * 0.66, t * 300 % 360 + 180, 50, col(A, 160), R * 0.02)
+        # voice ring: bars that move with her voice (speaking) or listen (listening)
+        if state in ("speaking", "listening"):
+            amp = self.level if state == "speaking" else 0.25 + 0.2 * math.sin(t * 6)
+            r_v = R * 0.70
+            for i in range(96):
+                ang = math.radians(i * 3.75 + deg * 0.3)
+                wob = 0.5 + 0.5 * math.sin(t * 7 + self.rng[i] + i * 0.4)
+                ln = R * (0.02 + 0.16 * amp * wob)
+                d.line([(c + math.cos(ang) * r_v, c + math.sin(ang) * r_v),
+                        (c + math.cos(ang) * (r_v + ln), c + math.sin(ang) * (r_v + ln))],
+                       fill=col(B if i % 2 else A, 210), width=max(1, int(R * 0.012)))
+        else:  # resting: a faint outer ring with a slow marker
+            self._arc(d, R * 0.72, 0, 360, col(A, 45), R * 0.005)
+            self._arc(d, R * 0.72, deg * 0.5, 14, col(B, 180), R * 0.012)
+        if state == "listening":  # rings expanding outwards
+            for k in range(2):
+                ph = (t * 0.8 + k * 0.5) % 1.0
+                self._arc(d, R * (0.6 + ph * 0.36), 0, 360, col(B, 160 * (1 - ph)), R * 0.008)
+        if self.side:
+            base = self._panels(base, state, t)
+            return base.resize((self.size + 2 * self.side, self.size), Image.LANCZOS)
+        return base.resize((self.size, self.size), Image.LANCZOS)
+
+    def _panels(self, orb, state, t):
+        """Readouts either side: the time on the left, her systems on the right."""
+        from datetime import datetime
+        P, W = self.side * 2, self.W
+        canvas = Image.new("RGB", (W + 2 * P, W), tuple(int(v) for v in self.bg))
+        canvas.paste(orb, (P, 0))
+        d = ImageDraw.Draw(canvas, "RGBA")
+        A, B = self.col_a, self.col_b
+        acc = (int(B[0]), int(B[1]), int(B[2]))
+        acc2 = (int(A[0]), int(A[1]), int(A[2]))
+        mid = W / 2
+        now = datetime.now()
+        # left: clock
+        xr = P - W * 0.06
+        d.text((xr, mid - W * 0.02), now.strftime("%H:%M"), font=_font("light", 30), fill=INK, anchor="rs")
+        d.text((xr, mid + W * 0.035), now.strftime("%A %d %B").upper(), font=_font("semibold", 7.5),
+               fill=MUTED_RGB, anchor="rm")
+        d.text((xr, mid + W * 0.085), self.info.get("left", ""), font=_font("semibold", 7.5), fill=acc, anchor="rm")
+        # bracket from the clock into the rings
+        y0 = mid + W * 0.13
+        d.line([(xr - W * 0.38, y0), (P + W * 0.12, y0)], fill=(*acc2, 110), width=2)
+        d.line([(P + W * 0.12, y0), (P + W * 0.2, y0 - W * 0.06)], fill=(*acc2, 110), width=2)
+        sec = now.second + (t % 1)
+        d.line([(xr - W * 0.38, y0), (xr - W * 0.38 + (W * 0.38 - (xr - P - W * 0.12)) * 0 + W * 0.38 * sec / 60, y0)],
+               fill=(*acc, 230), width=4)
+        # right: systems
+        xl = P + W + W * 0.06
+        rows = self.info.get("rows") or []
+        label_state = {"idle": "STANDING BY", "listening": "LISTENING", "thinking": "WORKING",
+                       "speaking": "SPEAKING", "offline": "STARTING UP"}.get(state, state.upper())
+        y = mid - W * 0.2
+        blink = 160 + int(95 * (0.5 + 0.5 * math.sin(t * 4)))
+        d.ellipse([xl, y - 7, xl + 14, y + 7], fill=(*acc, blink))
+        d.text((xl + 28, y), label_state, font=_font("semibold", 9), fill=acc, anchor="lm")
+        y += W * 0.085
+        for k, v in rows[:5]:
+            d.text((xl, y), k.upper(), font=_font("semibold", 6.5), fill=FAINT_RGB, anchor="lm")
+            d.text((xl + W * 0.2, y), _fit(d, v, _font("semibold", 8), P - W * 0.3), font=_font("semibold", 8),
+                   fill=INK, anchor="lm")
+            y += W * 0.065
+        y1 = mid + W * 0.2
+        d.line([(xl - W * 0.02, y1), (xl + P * 0.7, y1)], fill=(*acc2, 90), width=2)
+        d.line([(P + W - W * 0.12, mid - W * 0.26), (xl - W * 0.02, mid - W * 0.26)], fill=(*acc2, 90), width=2)
+        return canvas
+
+
+def make_orb(size, settings=None, width=0):
+    style = ((settings or {}).get("orb_style") or "Jarvis").lower()
+    if style.startswith("sphere"):
+        return Orb(size)
+    big = int(size * 1.3)
+    side = 0
+    if width >= 1100:
+        side = max(0, min(320, int((min(width, 1500) - big) / 2) - 20))
+    return HudOrb(big, side)
+
+
 S = 2  # draw chrome at 2x, then smooth down
 INK, MUTED_RGB, FAINT_RGB = (232, 236, 243), (138, 147, 166), (88, 96, 114)
 GREEN, AMBER = (74, 222, 128), (251, 191, 36)
@@ -215,7 +374,7 @@ class MooWindow:
         self.state = "offline"
         self.detail = ""
         self.t0 = time.time()
-        self.orb = Orb(220)
+        self.orb = make_orb(220, app.settings)
         self._orb_img = None
         self._has_placeholder = False
         self._card_images = []
@@ -582,7 +741,32 @@ class MooWindow:
             logging.getLogger("moo").exception("Glance strip failed")
         self.root.after(20000, self._refresh_glance)
 
+    def _hud_info(self):
+        """What the Jarvis readouts show beside her."""
+        if not isinstance(self.orb, HudOrb) or not self.orb.side:
+            return
+        app, rows = self.app, []
+        try:
+            ears = getattr(app, "ears", None)
+            cloud = getattr(ears, "last_cloud", None) if ears else None
+            from .config import get_secret
+            rows.append(("Hearing", "Cloud" if (cloud or (cloud is None and get_secret("groq_key"))) else "On this PC"))
+            rows.append(("Wake", "Hello Moo · Ctrl+Alt+M"))
+            mouth = getattr(app, "mouth", None)
+            v = getattr(mouth, "voice", None) or app.settings.get("voice", "")
+            rows.append(("Voice", str(v).split("|")[-1].replace("_", " ")[:28] or "Off"))
+            vault = getattr(getattr(app, "brain", None), "vault", None)
+            if vault is not None and vault.ready:
+                rows.append(("Brain", f"{len(vault.notes())} notes"))
+            pend = len(app.approvals.pending()) if getattr(app, "approvals", None) else 0
+            rows.append(("Your OK", f"{pend} waiting" if pend else "None waiting"))
+        except Exception:
+            pass
+        from . import __version__
+        self.orb.info = {"rows": rows, "left": f"MOO {__version__} · ONLINE"}
+
     def _draw_glance(self, force=False):
+        self._hud_info()
         items = self._glance_items()
         col = self._column()
         n = 4 if col >= 640 else 2
@@ -641,8 +825,12 @@ class MooWindow:
         orb = 280 if e.height >= 1000 else (220 if e.height >= 860 else (180 if e.height >= 700 else 140))
         side = max(18, int((e.width - COLUMN - 40) / 2))
         self.input.pack_configure(padx=side)
-        if orb != self.orb.size:
-            self.orb = Orb(orb)
+        wide = e.width >= 1100
+        if (orb, wide) != (getattr(self, "_orb_base", None), getattr(self, "_orb_wide", None)) or \
+                getattr(self, "_orb_style", None) != self.app.settings.get("orb_style"):
+            self._orb_base, self._orb_wide, self._orb_style = orb, wide, self.app.settings.get("orb_style")
+            self.orb = make_orb(orb, self.app.settings, e.width)
+            self._hud_info()
         self.root.after(60, self._draw_glance)
 
     # ---------- input ----------
@@ -778,6 +966,10 @@ class MooWindow:
 
     def apply_appearance(self):
         s = self.app.settings
+        if getattr(self, "_orb_style", None) != s.get("orb_style") and getattr(self, "_orb_base", None):
+            self._orb_style = s.get("orb_style")
+            self.orb = make_orb(self._orb_base, s, self.root.winfo_width())
+            self._hud_info()
         name = s.get("assistant_name", "Moo") or "Moo"
         self.root.title(name)
         title = (s.get("header_title") or "").strip()

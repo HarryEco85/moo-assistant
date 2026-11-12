@@ -1,4 +1,4 @@
 {
-  "version": "1.28.1",
-  "notes": "Fix: \"Hello Moo\" / \"Hi Moo\" / \"Hey Moo\" wake her reliably again, while ordinary chatter still doesn't."
+  "version": "1.29.0",
+  "notes": "New Jarvis look: a glowing core in rotating rings that react to her voice and state, with a clock and live systems readout either side on a big screen. Switch back in Settings > Look > Her look."
 }
