@@ -89,6 +89,10 @@ class MooApp:
         self.phone.start()
         self.mobile.start()
         self.watcher.start()
+        from .dashboard import Dashboard
+        self.dashboard = Dashboard(self)
+        self.dashboard.changed = lambda: self.ui.later(self.ui._draw_dashboard)
+        self.dashboard.start()
         if self.settings.get("auto_update", True):
             threading.Thread(target=self._check_updates, args=(True,), daemon=True, name="update-check").start()
         self.ui.run()

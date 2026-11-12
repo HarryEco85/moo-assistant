@@ -1,4 +1,4 @@
 {
-  "version": "1.29.0",
-  "notes": "New Jarvis look: a glowing core in rotating rings that react to her voice and state, with a clock and live systems readout either side on a big screen. Switch back in Settings > Look > Her look."
+  "version": "1.30.0",
+  "notes": "Home screen dashboard: weather, today's diary, your team, inbox, Tesla, Spotify and headlines either side of the chat. Tap any tile to ask about it."
 }

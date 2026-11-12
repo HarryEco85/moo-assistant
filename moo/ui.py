@@ -238,6 +238,14 @@ class HudOrb:
         return canvas
 
 
+def dash_width(width, settings=None):
+    """How wide each dashboard column is (0 = no room / switched off)."""
+    if settings is not None and not settings.get("dashboard", True):
+        return 0
+    free = (width - COLUMN) / 2 - 36
+    return int(min(340, free)) if free >= 230 else 0
+
+
 def make_orb(size, settings=None, width=0):
     style = ((settings or {}).get("orb_style") or "Jarvis").lower()
     if style.startswith("sphere"):
@@ -245,7 +253,13 @@ def make_orb(size, settings=None, width=0):
     big = int(size * 1.3)
     side = 0
     if width >= 1100:
-        side = max(0, min(320, int((min(width, 1500) - big) / 2) - 20))
+        room = (width - big) / 2 - 20
+        dw = dash_width(width, settings)
+        if dw:
+            room -= dw + 30
+        side = max(0, min(320, int(room)))
+        if side < 200:
+            side = 0
     return HudOrb(big, side)
 
 
@@ -355,6 +369,37 @@ def _icon(d, kind, cx, cy, s, col):
         d.line([(cx, cy - s * 0.12), (cx, cy + s * 0.14)], fill=col, width=w)
         d.arc([cx - s * 0.08, cy + s * 0.06, cx + s * 0.08, cy + s * 0.22], 0, 180, fill=col, width=w)
         d.line([(cx + s * 0.08, cy + s * 0.14), (cx + s * 0.08, cy - s * 0.12)], fill=col, width=w)
+    elif kind == "sun":
+        r = s * 0.16
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=w)
+        for k in range(8):
+            a = k * math.pi / 4
+            d.line([(cx + math.cos(a) * s * 0.26, cy + math.sin(a) * s * 0.26),
+                    (cx + math.cos(a) * s * 0.38, cy + math.sin(a) * s * 0.38)], fill=col, width=w)
+    elif kind == "ball":
+        r = s * 0.34
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=w)
+        pts = [(cx + math.cos(math.radians(-90 + k * 72)) * s * 0.13, cy + math.sin(math.radians(-90 + k * 72)) * s * 0.13)
+               for k in range(5)]
+        d.polygon(pts, fill=col)
+    elif kind == "car":
+        d.rounded_rectangle([cx - s * 0.38, cy - s * 0.06, cx + s * 0.38, cy + s * 0.18], radius=s * 0.06,
+                            outline=col, width=w)
+        d.line([(cx - s * 0.24, cy - s * 0.06), (cx - s * 0.14, cy - s * 0.24), (cx + s * 0.14, cy - s * 0.24),
+                (cx + s * 0.24, cy - s * 0.06)], fill=col, width=w, joint="curve")
+        for x in (-0.2, 0.2):
+            d.ellipse([cx + s * x - s * 0.07, cy + s * 0.14, cx + s * x + s * 0.07, cy + s * 0.28], fill=col)
+    elif kind == "music":
+        d.line([(cx - s * 0.1, cy + s * 0.2), (cx - s * 0.1, cy - s * 0.28), (cx + s * 0.22, cy - s * 0.34),
+                (cx + s * 0.22, cy + s * 0.12)], fill=col, width=w, joint="curve")
+        for x, y in ((-0.18, 0.2), (0.14, 0.12)):
+            d.ellipse([cx + s * x - s * 0.09, cy + s * y - s * 0.07, cx + s * x + s * 0.09, cy + s * y + s * 0.07],
+                      fill=col)
+    elif kind == "news":
+        d.rounded_rectangle([cx - s * 0.32, cy - s * 0.3, cx + s * 0.32, cy + s * 0.3], radius=s * 0.06,
+                            outline=col, width=w)
+        for k, y in enumerate((-0.14, 0.0, 0.14)):
+            d.line([(cx - s * 0.2, cy + s * y), (cx + s * (0.2 if k else 0.05), cy + s * y)], fill=col, width=w)
     elif kind == "bell":
         d.chord([cx - s * 0.24, cy - s * 0.32, cx + s * 0.24, cy + s * 0.22], 180, 360, outline=col, width=w)
         d.line([(cx - s * 0.24, cy - s * 0.05), (cx - s * 0.28, cy + s * 0.18), (cx + s * 0.28, cy + s * 0.18),
@@ -390,6 +435,7 @@ class MooWindow:
         self.root.after(33, self._animate)
         self.root.after(50, self._pump)
         self.root.after(400, self._refresh_glance)
+        self.root.after(1500, self._dash_tick)
         self.root.protocol("WM_DELETE_WINDOW", self.app.shutdown)
         self._dark_title_bar()
 
@@ -827,11 +873,84 @@ class MooWindow:
         self.input.pack_configure(padx=side)
         wide = e.width >= 1100
         if (orb, wide) != (getattr(self, "_orb_base", None), getattr(self, "_orb_wide", None)) or \
-                getattr(self, "_orb_style", None) != self.app.settings.get("orb_style"):
-            self._orb_base, self._orb_wide, self._orb_style = orb, wide, self.app.settings.get("orb_style")
+                getattr(self, "_orb_style", None) != (self.app.settings.get("orb_style"), self.app.settings.get("dashboard", True)):
+            self._orb_base, self._orb_wide = orb, wide
+            self._orb_style = (self.app.settings.get("orb_style"), self.app.settings.get("dashboard", True))
             self.orb = make_orb(orb, self.app.settings, e.width)
             self._hud_info()
         self.root.after(60, self._draw_glance)
+        self.root.after(120, self._draw_dashboard)
+
+    # ---------- the dashboard either side of the chat ----------
+    def _draw_dashboard(self):
+        dash = getattr(self.app, "dashboard", None)
+        W = self.root.winfo_width()
+        pw = dash_width(W, self.app.settings)
+        if not dash or not pw:
+            for lab in getattr(self, "_dash_labels", {}).values():
+                lab.place_forget()
+            return
+        from .dashboard import tiles
+        if not hasattr(self, "_dash_labels"):
+            self._dash_labels = {}
+            for side in ("left", "right"):
+                lab = tk.Label(self.root, bg=BG, bd=0, cursor="hand2")
+                lab.bind("<Button-1>", lambda e, sd=side: self._dash_click(sd, e.y))
+                self._dash_labels[side] = lab
+        top = self.canvas.winfo_y() + 8
+        bottom = self.input.winfo_y() - 14
+        h = max(120, bottom - top)
+        acc = self._accent()
+        self._dash_hits = {}
+        for side in ("left", "right"):
+            items = tiles(dash.data, side)
+            lab = self._dash_labels[side]
+            if not items:
+                lab.place_forget()
+                continue
+            img, d = _canvas(pw, h, _hex(BG))
+            y, hits = 0, []
+            sizes = {"big": (_font("semibold", 13), 34, INK), "row": (_font("semibold", 8.5), 22, INK),
+                     "sub": (_font("regular", 8), 20, MUTED_RGB), "accent": (_font("semibold", 8.5), 22, acc),
+                     "done": (_font("regular", 8.5), 22, FAINT_RGB)}
+            for icon, title, lines, prompt in items:
+                th = 44 + sum(sizes[st][1] for _, st in lines) + 10
+                if y + th > h:
+                    break
+                d.rounded_rectangle([0, y * S, pw * S - 1, (y + th) * S - 1], radius=14 * S, fill=_hex(SURFACE),
+                                    outline=_mix(_hex(BG), (255, 255, 255), 0.09), width=S)
+                d.rounded_rectangle([12 * S, (y + 10) * S, 36 * S, (y + 34) * S], radius=7 * S,
+                                    fill=_mix(_hex(SURFACE), acc, 0.2))
+                _icon(d, icon, 24 * S, (y + 22) * S, 16 * S, _mix(acc, (255, 255, 255), 0.25))
+                d.text((46 * S, (y + 22) * S), _fit(d, title, _font("semibold", 7.5), (pw - 58) * S),
+                       font=_font("semibold", 7.5), fill=FAINT_RGB, anchor="lm")
+                ly = y + 44
+                for text, st in lines:
+                    f, lh, colour = sizes[st]
+                    d.text((14 * S, (ly + lh / 2) * S), _fit(d, text, f, (pw - 28) * S), font=f, fill=colour,
+                           anchor="lm")
+                    ly += lh
+                hits.append((y, y + th, prompt))
+                y += th + 10
+            self._dash_hits[side] = hits
+            lab.configure(image=self._keep(f"dash_{side}", _done(img)))
+            x = 20 if side == "left" else W - 20 - pw
+            lab.place(x=x, y=top, width=pw, height=h)
+            lab.lift()
+
+    def _dash_click(self, side, y):
+        for a, b, prompt in getattr(self, "_dash_hits", {}).get(side, []):
+            if a <= y <= b:
+                self._suggest(prompt)
+                return
+
+    def _dash_tick(self):
+        try:
+            self._draw_dashboard()
+        except Exception:
+            import logging
+            logging.getLogger("moo").exception("Dashboard failed")
+        self.root.after(60000, self._dash_tick)
 
     # ---------- input ----------
     def _placeholder(self, show):
@@ -966,8 +1085,9 @@ class MooWindow:
 
     def apply_appearance(self):
         s = self.app.settings
-        if getattr(self, "_orb_style", None) != s.get("orb_style") and getattr(self, "_orb_base", None):
-            self._orb_style = s.get("orb_style")
+        if getattr(self, "_orb_style", None) != (s.get("orb_style"), s.get("dashboard", True)) and getattr(self, "_orb_base", None):
+            self._orb_style = (s.get("orb_style"), s.get("dashboard", True))
+            self.root.after(100, self._draw_dashboard)
             self.orb = make_orb(self._orb_base, s, self.root.winfo_width())
             self._hud_info()
         name = s.get("assistant_name", "Moo") or "Moo"

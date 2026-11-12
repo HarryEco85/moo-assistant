@@ -154,6 +154,14 @@ Everything is saved in **Documents > Moo Drawings**, one file set per revision. 
 Pictures are read with the sharper Sonnet brain automatically (Settings: vision_model), even if you use Haiku day to day.
 
 
+## Home screen dashboard
+
+On a big enough screen, live tiles sit either side of the chat:
+- **Left:** weather for home (today and the next two days, plus when it'll turn wet), today's diary (past meetings greyed out), and your team's next match and last result.
+- **Right:** unread email (urgent ones highlighted, plus the front-desk review count), the Tesla's battery and range, what's playing on Spotify, and headlines.
+
+Each tile only shows once its source is set up. Tell Moo where you live ("I live in Cliffe Woods") to get weather, and your team for the football tile. Tap a tile to ask her about it. Change the headlines or turn the dashboard off in Settings > Look.
+
 ## Spotify
 
 "Play some Oasis", "put my Gym playlist on", "play my liked songs", "skip", "turn it down to 30", "shuffle on", "queue Wonderwall", "what's this song?", "move it to my phone", "play it in the car".

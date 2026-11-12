@@ -262,6 +262,11 @@ class SettingsWindow:
         t, s = self.tab_look, self.s
         self._combo(t, "theme", "Colour theme", [(n, n) for n in THEMES], s.get("theme", "Ocean"),
                     note="Changes the orb, mic button and highlights.")
+        self._check(t, "dashboard", "Home screen dashboard either side of the chat (big screens)",
+                    s.get("dashboard", True))
+        self._combo(t, "dashboard_news", "Dashboard headlines", ["top", "uk", "business", "kent", "technology",
+                                                                  "football", "construction"],
+                    s.get("dashboard_news", "top"))
         self._combo(t, "orb_style", "Her look", ["Jarvis", "Sphere"], s.get("orb_style", "Jarvis"),
                     note="Jarvis: glowing core and rotating rings. Sphere: the original ball.")
         self._entry(t, "header_title", "Name in the top corner", s.get("header_title", ""),

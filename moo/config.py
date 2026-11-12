@@ -47,6 +47,8 @@ DEFAULTS = {
     "window_opacity": 100,
     "header_title": "MOO MY AGENT",
     "orb_style": "Jarvis",
+    "dashboard": True,  # weather, diary, inbox, football, car, music and news either side of the chat
+    "dashboard_news": "top",
     "voice_filter": "British male",  # which voices the Voice tab lists  # the name in the top corner (PC and phone app)
     "always_on_top": False,
     # The brain. Haiku is cheapest; switch to "claude-sonnet-5-5" for harder questions.
