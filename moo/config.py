@@ -103,7 +103,7 @@ DEFAULTS = {
     "football_alerts": True,  # match-day and full-time messages
     "tesla_api_base": "https://api.teslemetry.com",
     "tesla_vin": "",
-    "follow_up": True,  # keep listening after an answer, Jarvis-style
+    "follow_up": False,  # keep listening after an answer without the wake word (off: only "Hey/Hello Moo")
     "follow_up_seconds": 5,
     "welcome_back": True,
     "offer_record": True,  # offer to record Teams/Zoom meetings when one starts
@@ -189,6 +189,9 @@ def _migrate(settings):
         if settings.get("listen_pause", 1.2) < 1.2:
             settings["listen_pause"] = 1.2
         done.add("more_time")
+    if "wake_only" not in done:  # only listen after "Hey Moo" / "Hello Moo"
+        settings["follow_up"] = False
+        done.add("wake_only")
     if "ban_noted" not in done:
         words = [w.strip().lower() for w in (settings.get("banned_words") or "").split(",") if w.strip()]
         if "noted" not in words:

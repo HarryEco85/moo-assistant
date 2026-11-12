@@ -404,7 +404,7 @@ class MooApp:
         if not getattr(self, "_follow_next", False):
             return
         self._follow_next = False
-        if not self.settings.get("follow_up", True) or depth >= 6 or not (self.ears and self.ears.available):
+        if not self.settings.get("follow_up", False) or depth >= 6 or not (self.ears and self.ears.available):
             return
         threading.Thread(target=self._follow_up, args=(depth,), daemon=True, name="follow-up").start()
 

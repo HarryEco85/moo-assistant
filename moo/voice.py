@@ -491,7 +491,7 @@ class Mouth:
                 on_end()
 
 
-_WAKE = re.compile(r"^\W*(?:(hey|hi|hay|ay|a|okay|ok|oi|right)\W+)?(moo+|mu|moe|mo|mooh)\b\W*(.*)$", re.I)
+_WAKE = re.compile(r"^\W*(?:(hey|hi|hello|hallo|hullo|hay|ay|a|okay|ok|oi|right)\W+)?(moo+|mu|moe|mo|mooh)\b\W*(.*)$", re.I)
 
 
 def match_wake(text, name="Moo"):
@@ -499,7 +499,7 @@ def match_wake(text, name="Moo"):
     or None if it wasn't the wake phrase. Without 'hey', only a clear 'Moo' counts."""
     t = (text or "").strip()
     if name.lower() != "moo":
-        m = re.match(rf"^\W*(?:(hey|hi|okay|ok)\W+)?({re.escape(name)})\b\W*(.*)$", t, re.I)
+        m = re.match(rf"^\W*(?:(hey|hi|hello|okay|ok)\W+)?({re.escape(name)})\b\W*(.*)$", t, re.I)
     else:
         m = _WAKE.match(t)
     if not m:

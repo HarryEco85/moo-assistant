@@ -319,7 +319,7 @@ class SettingsWindow:
                      s.get("listen_pause", 1.2), 0.1, "Quick", "Plenty of time")
         self._check(t, "barge_in", "Stop talking when I start speaking", s.get("barge_in", True))
         self._check(t, "follow_up", "Keep listening after she answers, so I can carry on without the wake word",
-                    s.get("follow_up", True))
+                    s.get("follow_up", False))
         self._slider(t, "follow_up_seconds", "How long she waits for a follow-up", 3, 12,
                      s.get("follow_up_seconds", 6), 1, "Short", "Long")
         self._combo(t, "barge_sensitivity", "How easily I can interrupt her",

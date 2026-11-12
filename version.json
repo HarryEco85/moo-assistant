@@ -1,4 +1,4 @@
 {
-  "version": "1.27.1",
-  "notes": "Fix: after answering, Moo no longer replies to other people talking nearby. Without the wake word she only carries on if you're clearly talking to her."
+  "version": "1.27.2",
+  "notes": "Moo only listens after the wake phrase (\"Hey Moo\" or \"Hello Moo\"). Carry-on listening is now off unless you switch it on."
 }
