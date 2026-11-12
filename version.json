@@ -1,4 +1,4 @@
 {
-  "version": "1.27.2",
-  "notes": "Moo only listens after the wake phrase (\"Hey Moo\" or \"Hello Moo\"). Carry-on listening is now off unless you switch it on."
+  "version": "1.27.3",
+  "notes": "Stricter wake phrase: only \"Hello Moo\" / \"Hey Moo\" (or Ctrl+Alt+M) wakes her, double-checked in the cloud, so office chatter no longer sets her off."
 }

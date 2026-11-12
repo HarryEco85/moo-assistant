@@ -491,7 +491,7 @@ class Mouth:
                 on_end()
 
 
-_WAKE = re.compile(r"^\W*(?:(hey|hi|hello|hallo|hullo|hay|ay|a|okay|ok|oi|right)\W+)?(moo+|mu|moe|mo|mooh)\b\W*(.*)$", re.I)
+_WAKE = re.compile(r"^\W*(hey|hello|hallo|hullo|hiya|hi)\W+(moo+|mooh|mu|moe|mo)\b\W*(.*)$", re.I)
 
 
 def match_wake(text, name="Moo"):
@@ -499,17 +499,12 @@ def match_wake(text, name="Moo"):
     or None if it wasn't the wake phrase. Without 'hey', only a clear 'Moo' counts."""
     t = (text or "").strip()
     if name.lower() != "moo":
-        m = re.match(rf"^\W*(?:(hey|hi|hello|okay|ok)\W+)?({re.escape(name)})\b\W*(.*)$", t, re.I)
+        m = re.match(rf"^\W*(hey|hi|hello|hiya)\W+({re.escape(name)})\b\W*(.*)$", t, re.I)
     else:
         m = _WAKE.match(t)
-    if not m:
-        return None
-    hey, word, rest = m.group(1), m.group(2).lower(), m.group(3).strip()
-    if not hey and not word.startswith("moo") and name.lower() == "moo":
-        return None
-    if not hey and len(t.split()) > 12:
-        return None  # a long sentence that happens to start with "moo..." isn't for her
-    return rest
+    if not m or not m.group(1):
+        return None  # only "Hello Moo" / "Hey Moo": a bare name or "a mo" in passing doesn't count
+    return m.group(3).strip()
 
 
 def cloud_transcribe(pcm, settings) -> str:
@@ -770,14 +765,23 @@ class Ears:
             try:
                 pcm = audio.astype(np.float32) / 32768.0
                 segs, _ = self.tiny.transcribe(pcm, language="en", beam_size=1, without_timestamps=True,
-                                               initial_prompt="Hey Moo.", condition_on_previous_text=False)
+                                               condition_on_previous_text=False)
                 text = " ".join(s.text.strip() for s in segs).strip()
             except Exception as e:
                 log.warning("Hey Moo check failed: %s", e)
                 continue
-            hit = match_wake(text, self.settings.get("assistant_name", "Moo") or "Moo")
+            name = self.settings.get("assistant_name", "Moo") or "Moo"
+            hit = match_wake(text, name)
             if hit is None or time.time() - self._last_wake < 2 or self.mode not in ("wake", "notes"):
                 continue
+            # double-check with the better ears before waking (cuts out false alarms from office chatter)
+            sure = cloud_transcribe(pcm, self.settings)
+            if sure is not None:
+                checked = match_wake(sure, name)
+                if checked is None:
+                    log.info("Wake phrase not confirmed (%r vs %r)", text[:60], sure[:60])
+                    continue
+                hit = checked
             self._last_wake = time.time()
             log.info("Heard the wake phrase: %r", text[:80])
             self.on_wake(hit or None)
