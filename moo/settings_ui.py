@@ -470,6 +470,33 @@ class SettingsWindow:
         self._entry(t, "tesla_api_base", "Tesla API address", s.get("tesla_api_base", "https://api.teslemetry.com"),
                     note="Leave as it is for Teslemetry.")
         tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
+        self._entry(t, "spotify_client_id", "Spotify Client ID", s.get("spotify_client_id", ""),
+                    note=("developer.spotify.com > Dashboard > Create app > Redirect URI http://127.0.0.1:8888/callback, "
+                          "tick Web API > Save > copy the Client ID here. Then press Connect."))
+        srow = tk.Frame(t, bg=SURFACE)
+        srow.pack(fill="x", pady=(8, 0))
+        self.sp_result = tk.Label(srow, text="Connected." if get_secret("spotify_refresh") else "", bg=SURFACE,
+                                  fg=MUTED, font=(FONT, 9))
+
+        def connect_spotify():
+            self.s["spotify_client_id"] = self.vars["spotify_client_id"].get().strip()
+            save_settings(self.s)
+            self.sp_result.configure(text="Opening Spotify sign-in in your browser…", fg=MUTED)
+
+            def run():
+                from .spotify import Spotify
+                msg = Spotify(self.s).connect()
+                try:
+                    self.app.brain.spotify = Spotify(self.s)
+                except Exception:
+                    pass
+                self.ui.later(lambda: self.sp_result.winfo_exists() and self.sp_result.configure(
+                    text=msg[:90], fg=TEXT if msg.startswith("Connected") else "#FF8A80"))
+                self.ui.add_message("sys", msg)
+            threading.Thread(target=run, daemon=True).start()
+        self._button(srow, "Connect Spotify", connect_spotify).pack(side="left")
+        self.sp_result.pack(side="left", padx=10)
+        tk.Frame(t, bg=FAINT, height=1).pack(fill="x", pady=(18, 0))
         self._entry(t, "ha_url", "Smart home: Home Assistant address", s.get("ha_url", ""),
                     note="e.g. http://homeassistant.local:8123 (or your Nabu Casa address to work away from home).")
         self._entry(t, "ha_token", "Home Assistant long-lived token", "", show="•",

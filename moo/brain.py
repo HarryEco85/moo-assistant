@@ -122,6 +122,7 @@ Second brain (your long-term knowledge, Documents > Moo Brain):
 - "Remember X about the business/a client/a site" goes in the second brain; personal preferences about how you behave go in remember.
 
 Running things, like Jarvis:
+- Music: use the spotify tool (search and play anything, their playlists, skip, volume, move it to their phone, car or speaker). If Spotify isn't connected, pc_control media keys work for whatever's playing on the PC.
 - You can run the PC (pc_control): open apps and websites, volume, music play/pause/skip, timers ("10 minute timer" = timer of 600 seconds), lock the PC, screen off, show the desktop. Just do it and confirm in a few words.
 - News: the news tool for headlines (top, uk, business, technology, kent, sport, football, construction...). Give the three or four that matter to {user}, not a list of eight.
 - A link or "what does this page say": read_webpage. A finished document they asked for as a file ("put that in a Word doc", "make me a spreadsheet of..."): make_document, which saves and opens it. RAMS and quote wording still default to plain wording in the chat unless they ask for a document.
@@ -403,6 +404,15 @@ def _tools():
              "target": {"type": "string", "description": "App name, website name/URL/search, timer label, or media command (play, pause, next, previous)"},
              "value": {"type": "string", "description": "Volume 0-100/up/down/mute, or timer length in SECONDS"}},
              "required": ["action"]}},
+        {"name": "spotify", "description": "Their Spotify: play a song, artist, album or playlist (theirs or any), pause/resume, skip, back, volume, shuffle, queue a song, what's playing, list devices, move the music to another device (phone, car, speaker).",
+         "input_schema": {"type": "object", "properties": {
+             "action": {"type": "string", "enum": ["play", "pause", "resume", "next", "previous", "volume", "shuffle",
+                                                   "queue", "now_playing", "devices", "move", "playlists"]},
+             "query": {"type": "string", "description": "What to play or queue, e.g. 'Oasis', 'Wonderwall', 'my Gym playlist', 'liked songs'"},
+             "kind": {"type": "string", "enum": ["auto", "track", "artist", "album", "playlist", "liked"]},
+             "device": {"type": "string", "description": "Device name or type, e.g. 'phone', 'Tesla', 'kitchen', 'computer'"},
+             "value": {"type": "string", "description": "Volume 0-100, or shuffle on/off"}},
+             "required": ["action"]}},
         {"name": "news", "description": "Latest headlines from the BBC (or Construction News).",
          "input_schema": {"type": "object", "properties": {"topic": {"type": "string", "enum": [
              "top", "uk", "world", "business", "technology", "politics", "kent", "birmingham", "sport", "football",
@@ -528,6 +538,8 @@ class Brain:
         self.on_alert = lambda text: None
         self.pc = PC(on_timer=lambda text: self.on_alert(text))
         self.home = Home(settings)
+        from .spotify import Spotify
+        self.spotify = Spotify(settings)
         self.watches = Watches()
         self.routines = Routines()
         from .vault import Vault
@@ -818,6 +830,8 @@ class Brain:
                 return self._desk_tool(name, args)
             if name.startswith("brain_"):
                 return self._vault_tool(name, args)
+            if name == "spotify":
+                return self._spotify_tool(args)
             if name in ("pc_control", "news", "read_webpage", "make_document", "smart_home", "watch_for", "routine"):
                 return self._jarvis_tool(name, args)
             if name.startswith("survey_") or name == "rate_card":
@@ -1035,6 +1049,21 @@ class Brain:
                 out = "\n".join(f"- {n}: {', '.join(c) or 'nothing new'}" for n, c in done) or "Inbox was empty."
             return f"Second brain ({v.root}): {v.overview()}." + (f"\nDigested:\n{out}" if out else "")
         return "Unknown tool."
+
+    def _spotify_tool(self, args) -> str:
+        sp = self.spotify
+        if not sp.enabled:
+            return ("Spotify isn't connected yet: Settings > Accounts > Spotify (needs a free Spotify developer app "
+                    "Client ID, about two minutes, steps in the README). Meanwhile pc_control media keys can "
+                    "play/pause/skip whatever's open on the PC.")
+        a, q = args.get("action", "now_playing"), args.get("query", "")
+        if a == "play":
+            return sp.play(q, args.get("kind", "auto"), args.get("device", ""))
+        if a == "resume":
+            return sp.play("", "", args.get("device", ""))
+        if a == "now_playing":
+            return sp.now_playing()
+        return sp.control(a, args.get("value") or q, args.get("device", ""))
 
     def _jarvis_tool(self, name, args) -> str:
         from . import jarvis as J

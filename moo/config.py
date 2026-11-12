@@ -114,7 +114,8 @@ DEFAULTS = {
     "review_triggers": "",  # blank = the built-in red flags
     "second_brain": True,  # keep notes on people, clients, sites and jobs in Documents > Moo Brain
     "away_minutes": 20,
-    "ha_url": "",  # Home Assistant, for lights and heating
+    "ha_url": "",
+    "spotify_client_id": "",  # Home Assistant, for lights and heating
     "mobile_url": "",  # the phone app's Supabase project
     "mobile_key": "",
     "mobile_enabled": True,

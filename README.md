@@ -154,6 +154,17 @@ Everything is saved in **Documents > Moo Drawings**, one file set per revision. 
 Pictures are read with the sharper Sonnet brain automatically (Settings: vision_model), even if you use Haiku day to day.
 
 
+## Spotify
+
+"Play some Oasis", "put my Gym playlist on", "play my liked songs", "skip", "turn it down to 30", "shuffle on", "queue Wonderwall", "what's this song?", "move it to my phone", "play it in the car".
+
+Setup (once, about two minutes):
+1. Go to **developer.spotify.com**, log in with your Spotify account, then Dashboard > **Create app**.
+2. Give it any name and description, set the Redirect URI to `http://127.0.0.1:8888/callback`, tick **Web API**, and Save.
+3. Copy the **Client ID** into Moo: Settings > Accounts > Spotify Client ID. Press **Connect Spotify** and approve in the browser.
+
+Spotify only allows control on **Premium** accounts (free accounts can still ask what's playing). Spotify needs to be open on at least one device, even paused, for Moo to start it there.
+
 ## Recording Teams meetings
 
 When a Teams (or Zoom, or Google Meet) meeting window opens, Moo quietly offers to record it, with a button and a Windows notification. You can also say "record this Teams call" or "transcribe this meeting" any time.

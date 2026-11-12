@@ -1,4 +1,4 @@
 {
-  "version": "1.27.3",
-  "notes": "Stricter wake phrase: only \"Hello Moo\" / \"Hey Moo\" (or Ctrl+Alt+M) wakes her, double-checked in the cloud, so office chatter no longer sets her off."
+  "version": "1.28.0",
+  "notes": "Spotify: play anything, your playlists and liked songs, skip, volume, shuffle, queue, what's playing, and move the music to your phone, car or speakers. Connect in Settings > Accounts."
 }
