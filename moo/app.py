@@ -422,8 +422,13 @@ class MooApp:
                 text = self.ears.listen(start_timeout=float(self.settings.get("follow_up_seconds", 6)))
             except RuntimeError:
                 return
-            text = re.sub(r"^(hey )?(moo|jarvis)[,.!]?\s*", "", text or "", flags=re.I).strip()
+            raw = text or ""
+            text = re.sub(r"^(hey )?(moo|jarvis)[,.!]?\s*", "", raw, flags=re.I).strip()
             if not text or FILLER.match(text) or len(text) < 2:
+                return
+            addressed = bool(re.match(r"^(hey )?(moo|jarvis)\b", raw or "", re.I))
+            if not addressed and not self._meant_for_me(text):
+                log.info("Follow-up ignored (not said to Moo): %s", text[:80])
                 return
             if DISMISS.match(text):
                 self.ui.add_message("You", text)
@@ -431,12 +436,30 @@ class MooApp:
                 return
             self.ui.add_message("You", text)
             self._answer(text)
-            self._follow_next = True
+            self._follow_next = depth < 2  # a short back-and-forth, then back to the wake word
         finally:
             if not (self.mouth and self.mouth.speaking):
                 self.ui.set_state("idle")
             self.busy.release()
             self._maybe_follow_up(depth + 1)
+
+    def _meant_for_me(self, heard):
+        """Heard without the wake word: was it said to Moo, or someone else talking nearby?"""
+        try:
+            msgs = self.brain.history.messages
+            last = next((m for m in reversed(msgs) if m.get("role") == "assistant"), {})
+            said = last.get("content")
+            if isinstance(said, list):
+                said = " ".join(b.get("text", "") for b in said if isinstance(b, dict))
+            verdict = self.brain.quick(
+                f"An office voice assistant just said: \"{str(said or '')[-400:]}\"\n"
+                f"Its user is {user_name(self.settings)}. Then, without saying the wake word, the microphone picked "
+                "up the words below. Decide if they're the user replying to or asking the assistant something, "
+                "or other people talking nearby (colleagues chatting, phone calls, TV, talk about other people). "
+                "If in doubt, it's OTHER. Reply with exactly ASSISTANT or OTHER.", heard[:500], 5)
+            return "ASSISTANT" in (verdict or "").upper()
+        except Exception:
+            return False
 
     # ---------- welcome back and routines ----------
     def welcome_back(self, away_s, log_items):

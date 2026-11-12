@@ -104,7 +104,7 @@ DEFAULTS = {
     "tesla_api_base": "https://api.teslemetry.com",
     "tesla_vin": "",
     "follow_up": True,  # keep listening after an answer, Jarvis-style
-    "follow_up_seconds": 6,
+    "follow_up_seconds": 5,
     "welcome_back": True,
     "offer_record": True,  # offer to record Teams/Zoom meetings when one starts
     "auto_stop_record": True,  # stop and write up when the meeting window closes

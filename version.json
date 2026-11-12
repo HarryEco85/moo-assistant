@@ -1,4 +1,4 @@
 {
-  "version": "1.27.0",
-  "notes": "Record Teams/Zoom meetings: both sides captured and transcribed as it goes, then minutes (Word), transcript and audio saved, with actions, reminders and the follow-up email set up. Moo offers to record when a meeting starts."
+  "version": "1.27.1",
+  "notes": "Fix: after answering, Moo no longer replies to other people talking nearby. Without the wake word she only carries on if you're clearly talking to her."
 }
